@@ -4,15 +4,28 @@
 
 int main()
 {
-    if (!vk::init())
-    {
+	if (!vk::init())
+	{
 		std::cout << "Failed to initialize vulkan\n";
 		return -1;
-    }
+	}
 
-    auto procAddr = &vk::vkGetInstanceProcAddr;
+	std::cout << "Available Instance extensions:\n";
+	for (auto& extension : vk::get_available_instance_extensions())
+	{
+		std::cout << '\t' << extension.extensionName << " [" << extension.specVersion << "]\n";
+	}
 
-	std::cout << procAddr << '\n';
+	vk::application_info applicationInfo{
+		.name = "Learning VK",
+		.version = {0, 0, 1},
+	};
+
+	vk::instance instance = vk::create_instance(applicationInfo);
+	if (!instance)
+	{
+		return -1;
+	}
 
 	std::cout << "Everything fine so far!\n";
 	return 0;
