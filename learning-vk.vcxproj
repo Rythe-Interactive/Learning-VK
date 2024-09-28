@@ -145,15 +145,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\platform\linux\platform_linux.cpp" />
+    <ClCompile Include="src\vk\vulkan.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\platform\windows\platform_windows.cpp" />
-    <ClCompile Include="src\vk\vulkan_functions.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\platform\platform.hpp" />
     <ClInclude Include="include\platform\platform_dependent_var.hpp" />
     <ClInclude Include="include\vk\vulkan.hpp" />
-    <ClInclude Include="include\vk\vulkan_functions.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="include\vk\impl\list_of_vulkan_functions.inl" />

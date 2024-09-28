@@ -1,5 +1,7 @@
 #include <platform/platform.hpp>
 
+#if RYTHE_PLATFORM_LINUX
+
 #include <dlfcn.h>
 
 namespace rsl
@@ -16,3 +18,5 @@ namespace rsl
 		return dlsym(library.m_handle, symbolName);
 	}
 } // namespace rsl
+
+#endif
