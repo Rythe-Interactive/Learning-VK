@@ -116,9 +116,6 @@ lib/*
 # Rythe Precompiled shader files
 *.shil
 
-# Rythe Includes
-include/**
-
 # Misc
 */**/Thumbs.db
 applications/sandbox/imgui.ini

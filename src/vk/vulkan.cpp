@@ -13,17 +13,31 @@ namespace vk
 			rsl::linux_var{"libvulkan.so.1"},
 		};
 
-		std::vector<VkExtensionProperties> availableInstanceExtensionsBuffer;
 		std::vector<extension_properties> availableInstanceExtensions;
+		bool libraryIsInitialized = false;
+
+		constexpr semver::version decomposeVkVersion(rsl::uint32 vkVersion)
+		{
+			return semver::version{
+				static_cast<rsl::uint8>(VK_API_VERSION_MAJOR(vkVersion)),
+				static_cast<rsl::uint8>(VK_API_VERSION_MINOR(vkVersion)),
+				static_cast<rsl::uint8>(VK_API_VERSION_PATCH(vkVersion)),
+			};
+		}
 	} // namespace
 
-#define EXPORTED_VULKAN_FUNCTION(name) PFN_vk##name name;
-#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_vk##name name;
+#define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name;
+#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name;
 
 #include <vk/impl/list_of_vulkan_functions.inl>
 
 	bool init()
 	{
+		if (libraryIsInitialized)
+		{
+			return true;
+		}
+
 		vulkanLibrary = rsl::platform::load_library(vulkanLibName);
 
 		if (!vulkanLibrary)
@@ -33,68 +47,70 @@ namespace vk
 		}
 
 #define EXPORTED_VULKAN_FUNCTION(name)                                                                                 \
-	name = vulkanLibrary.get_symbol<PFN_vk##name>("vk" #name);                                                         \
+	name = vulkanLibrary.get_symbol<PFN_##name>(#name);                                                                \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
-		std::cout << "Could not load exported Vulkan function \"vk" #name "\"\n";                                      \
+		std::cout << "Could not load exported Vulkan function \"" #name "\"\n";                                        \
 		return false;                                                                                                  \
 	}
 
 #define GLOBAL_LEVEL_VULKAN_FUNCTION(name)                                                                             \
-	name = reinterpret_cast<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name));                                   \
+	name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(nullptr, #name));                                        \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
-		std::cout << "Could not load global-level Vulkan function \"vk" #name "\"\n";                                  \
+		std::cout << "Could not load global-level Vulkan function \"" #name "\"\n";                                    \
 		return false;                                                                                                  \
 	}
 
 #include <vk/impl/list_of_vulkan_functions.inl>
 
-		rsl::uint32 extensionCount = 0;
-		VkResult result = EnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-		if (result != VK_SUCCESS || extensionCount == 0)
-		{
-			std::cout << "Could not query the number of Instance extensions.\n";
-			return false;
-		}
-
-		availableInstanceExtensionsBuffer.resize(extensionCount);
-		result =
-			EnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableInstanceExtensionsBuffer.data());
-		if (result != VK_SUCCESS || extensionCount == 0)
-		{
-			std::cout << "Could not enumerate Instance extensions.\n";
-			return false;
-		}
-
-		availableInstanceExtensions.reserve(extensionCount);
-		for (auto& extension : availableInstanceExtensionsBuffer)
-		{
-			semver::version extensionVersion{
-				static_cast<rsl::uint8>(VK_API_VERSION_MAJOR(extension.specVersion)),
-				static_cast<rsl::uint8>(VK_API_VERSION_MINOR(extension.specVersion)),
-				static_cast<rsl::uint8>(VK_API_VERSION_PATCH(extension.specVersion)),
-			};
-
-			availableInstanceExtensions.push_back({
-				.extensionName = extension.extensionName,
-				.specVersion = extensionVersion,
-			});
-		}
+		libraryIsInitialized = true;
 
 		return true;
 	}
 
-	std::span<extension_properties> get_available_instance_extensions()
+	std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh)
 	{
+		if (forceRefresh || availableInstanceExtensions.empty())
+		{
+			rsl::uint32 extensionCount = 0;
+			VkResult result = vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Could not query the number of instance extensions.\n";
+				return {};
+			}
+
+			std::vector<VkExtensionProperties> availableInstanceExtensionsBuffer;
+			availableInstanceExtensionsBuffer.resize(extensionCount);
+			result = vkEnumerateInstanceExtensionProperties(
+				nullptr, &extensionCount, availableInstanceExtensionsBuffer.data()
+			);
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Could not enumerate instance extensions.\n";
+				return {};
+			}
+
+			availableInstanceExtensions.clear();
+			availableInstanceExtensions.reserve(extensionCount);
+			for (auto& extension : availableInstanceExtensionsBuffer)
+			{
+				availableInstanceExtensions.push_back({
+					.name = extension.extensionName,
+					.specVersion = decomposeVkVersion(extension.specVersion),
+				});
+			}
+		}
+
 		return availableInstanceExtensions;
 	}
 
 	bool is_instance_extension_available(std::string_view extensionName)
 	{
-		for (auto& extension : availableInstanceExtensions)
+		for (auto& extension : get_available_instance_extensions())
 		{
-			if (extension.extensionName == extensionName)
+			if (extension.name == extensionName)
 			{
 				return true;
 			}
@@ -139,7 +155,7 @@ namespace vk
 		};
 
 		vk::instance instance;
-		VkResult result = CreateInstance(&instanceCreateInfo, nullptr, &instance._instance);
+		VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &instance.m_instance);
 
 		if (result != VK_SUCCESS || !instance)
 		{
@@ -147,12 +163,61 @@ namespace vk
 			return {};
 		}
 
+		if (!instance.load_functions(extensions))
+		{
+			std::cout << "Failed to load instance-level functions.\n";
+		}
+
+		return instance;
+	}
+
+	std::span<physical_device> instance::get_physical_devices(bool forceRefresh)
+	{
+		if (forceRefresh || m_physicalDevices.empty())
+		{
+			rsl::uint32 deviceCount = 0;
+			VkResult result = vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+			if (result != VK_SUCCESS || deviceCount == 0)
+			{
+				std::cout << "Could not query the number of physical devices.\n";
+				return {};
+			}
+
+			std::vector<VkPhysicalDevice> physicalDevicesBuffer;
+			physicalDevicesBuffer.resize(deviceCount);
+			result = vkEnumeratePhysicalDevices(m_instance, &deviceCount, physicalDevicesBuffer.data());
+
+			if (result != VK_SUCCESS || deviceCount == 0)
+			{
+				std::cout << "Could not enumerate physical devices.\n";
+				return {};
+			}
+
+			m_physicalDevices.clear();
+			m_physicalDevices.reserve(deviceCount);
+			for (auto& pd : physicalDevicesBuffer)
+			{
+				auto& physicalDevice = m_physicalDevices.emplace_back();
+				physicalDevice.m_physicalDevice = pd;
+
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) physicalDevice.name = name;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) physicalDevice.name = name;
+
+#include <vk/impl/list_of_vulkan_functions.inl>
+			}
+		}
+
+		return m_physicalDevices;
+	}
+
+	bool instance::load_functions([[maybe_unused]] std::span<const char*> extensions)
+	{
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
-	instance.name = reinterpret_cast<PFN_vk##name>(GetInstanceProcAddr(instance._instance, "vk" #name));               \
-	if (!instance.name)                                                                                                \
+	name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(m_instance, #name));                                     \
+	if (!name)                                                                                                         \
 	{                                                                                                                  \
-		std::cout << "Could not load instance-level Vulkan function \"vk" #name "\"\n";                                \
-		return {};                                                                                                     \
+		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
+		return false;                                                                                                  \
 	}
 
 #define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSTION(name, extension)                                                \
@@ -160,11 +225,34 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			instance.name = reinterpret_cast<PFN_vk##name>(GetInstanceProcAddr(instance._instance, "vk" #name));       \
-			if (!instance.name)                                                                                        \
+			name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(m_instance, #name));                             \
+			if (!name)                                                                                                 \
 			{                                                                                                          \
-				std::cout << "Could not load instance-level Vulkan function \"vk" #name "\"\n";                        \
-				return {};                                                                                             \
+				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
+				return false;                                                                                          \
+			}                                                                                                          \
+			break;                                                                                                     \
+		}                                                                                                              \
+	}
+
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name)                                                           \
+	name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(m_instance, #name));                                     \
+	if (!name)                                                                                                         \
+	{                                                                                                                  \
+		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
+		return false;                                                                                                  \
+	}
+
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
+	for (auto& enabledExtension : extensions)                                                                          \
+	{                                                                                                                  \
+		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
+		{                                                                                                              \
+			name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(m_instance, #name));                             \
+			if (!name)                                                                                                 \
+			{                                                                                                          \
+				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
+				return false;                                                                                          \
 			}                                                                                                          \
 			break;                                                                                                     \
 		}                                                                                                              \
@@ -172,7 +260,106 @@ namespace vk
 
 #include <vk/impl/list_of_vulkan_functions.inl>
 
-		return instance;
+		return true;
+	}
+
+	std::span<const extension_properties> physical_device::get_available_extensions(bool forceRefresh)
+	{
+		if (forceRefresh || m_availableExtensions.empty())
+		{
+			rsl::uint32 extensionCount = 0;
+
+			VkResult result = vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extensionCount, nullptr);
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Count not query the number of device extensions.\n";
+				return {};
+			}
+
+			std::vector<VkExtensionProperties> extensionPropertiesBuffer;
+			extensionPropertiesBuffer.resize(extensionCount);
+			result = vkEnumerateDeviceExtensionProperties(
+				m_physicalDevice, nullptr, &extensionCount, extensionPropertiesBuffer.data()
+			);
+
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Could not enumerate device extensions.\n";
+				return {};
+			}
+
+			m_availableExtensions.clear();
+			m_availableExtensions.reserve(extensionCount);
+			for (auto& extension : extensionPropertiesBuffer)
+			{
+				m_availableExtensions.push_back({
+					.name = extension.extensionName,
+					.specVersion = decomposeVkVersion(extension.specVersion),
+				});
+			}
+		}
+
+		return m_availableExtensions;
+	}
+
+	const physical_device_features& physical_device::get_features(bool forceRefresh)
+	{
+		if (forceRefresh || !m_featuresLoaded)
+		{
+			vkGetPhysicalDeviceFeatures(m_physicalDevice, &m_features);
+
+			m_featuresLoaded = true;
+		}
+
+		return m_features;
+	}
+
+	const physical_device_properties& physical_device::get_properties(bool forceRefresh)
+	{
+		if (forceRefresh || !m_propertiesLoaded)
+		{
+			VkPhysicalDeviceProperties props;
+			vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+
+			m_properties.apiVersion = decomposeVkVersion(props.apiVersion);
+			m_properties.driverVersion = decomposeVkVersion(props.driverVersion);
+			m_properties.vendorID = props.vendorID;
+			m_properties.deviceID = props.deviceID;
+			m_properties.deviceType = props.deviceType;
+			m_properties.deviceName = props.deviceName;
+			memcpy(m_properties.pipelineCacheUUID, props.pipelineCacheUUID, sizeof(m_properties.pipelineCacheUUID));
+			m_properties.limits = props.limits;
+			m_properties.sparseProperties = props.sparseProperties;
+
+			m_propertiesLoaded = true;
+		}
+
+		return m_properties;
+	}
+
+	bool physical_device::initialize(std::span<const char*> extensions)
+	{
+		return load_functions(extensions);
+	}
+
+	bool physical_device::load_functions([[maybe_unused]] std::span<const char*> extensions)
+	{
+		return false;
+	}
+
+	std::string_view to_string(VkPhysicalDeviceType type)
+	{
+		switch (type)
+		{
+			case VK_PHYSICAL_DEVICE_TYPE_OTHER: return "Other";
+			case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return "Integrated GPU";
+			case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return "Discrete GPU";
+			case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return "Virtual GPU";
+			case VK_PHYSICAL_DEVICE_TYPE_CPU: return "CPU";
+			case VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM: return "unknown";
+		}
+
+		return "unknown";
 	}
 
 } // namespace vk
