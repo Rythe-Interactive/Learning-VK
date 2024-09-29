@@ -1,6 +1,5 @@
 #include <vk/vulkan.hpp>
 
-#include <platform/platform.hpp>
 #include <platform/platform_dependent_var.hpp>
 
 namespace vk
@@ -20,9 +19,6 @@ namespace vk
 
 #define EXPORTED_VULKAN_FUNCTION(name) PFN_vk##name name;
 #define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_vk##name name;
-#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_vk##name name;
-#define DEVICE_LEVEL_VULKAN_FUNCTION(name) PFN_vk##name name;
-#define DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_vk##name name;
 
 #include <vk/impl/list_of_vulkan_functions.inl>
 
@@ -52,12 +48,6 @@ namespace vk
 		return false;                                                                                                  \
 	}
 
-#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) ;
-
-#define DEVICE_LEVEL_VULKAN_FUNCTION(name) ;
-
-#define DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) ;
-
 #include <vk/impl/list_of_vulkan_functions.inl>
 
 		rsl::uint32 extensionCount = 0;
@@ -80,14 +70,15 @@ namespace vk
 		availableInstanceExtensions.reserve(extensionCount);
 		for (auto& extension : availableInstanceExtensionsBuffer)
 		{
+			semver::version extensionVersion{
+				static_cast<rsl::uint8>(VK_API_VERSION_MAJOR(extension.specVersion)),
+				static_cast<rsl::uint8>(VK_API_VERSION_MINOR(extension.specVersion)),
+				static_cast<rsl::uint8>(VK_API_VERSION_PATCH(extension.specVersion)),
+			};
+
 			availableInstanceExtensions.push_back({
 				.extensionName = extension.extensionName,
-				.specVersion =
-					{
-						static_cast<rsl::uint8>(VK_API_VERSION_MAJOR(extension.specVersion)),
-						static_cast<rsl::uint8>(VK_API_VERSION_MINOR(extension.specVersion)),
-						static_cast<rsl::uint8>(VK_API_VERSION_PATCH(extension.specVersion)),
-					},
+				.specVersion = extensionVersion,
 			});
 		}
 
@@ -112,18 +103,15 @@ namespace vk
 	}
 
 	instance create_instance(
-		const application_info& _applicationInfo, const semver::version& apiVersion,
-		std::span<const char*> extensions
+		const application_info& _applicationInfo, const semver::version& apiVersion, std::span<const char*> extensions
 	)
 	{
-		vk::instance instance;
-
 		for (auto& extensionName : extensions)
 		{
 			if (!is_instance_extension_available(extensionName))
 			{
 				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
-				return instance;
+				return {};
 			}
 		}
 
@@ -139,24 +127,50 @@ namespace vk
 			.apiVersion = VK_MAKE_API_VERSION(0, apiVersion.major, apiVersion.minor, apiVersion.patch),
 		};
 
-        VkInstanceCreateInfo instanceCreateInfo{
+		VkInstanceCreateInfo instanceCreateInfo{
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .pApplicationInfo = &applicationInfo,
-            .enabledLayerCount = 0,
+			.pNext = nullptr,
+			.flags = 0,
+			.pApplicationInfo = &applicationInfo,
+			.enabledLayerCount = 0,
 			.ppEnabledLayerNames = nullptr,
 			.enabledExtensionCount = static_cast<rsl::uint32>(extensions.size()),
 			.ppEnabledExtensionNames = extensions.data(),
 		};
 
-        VkResult result = CreateInstance(&instanceCreateInfo, nullptr, &instance._instance);
+		vk::instance instance;
+		VkResult result = CreateInstance(&instanceCreateInfo, nullptr, &instance._instance);
 
-        if (result != VK_SUCCESS || !instance)
-        {
+		if (result != VK_SUCCESS || !instance)
+		{
 			std::cout << "Failed to create Vulkan Instance\n";
-			instance = {};
-        }
+			return {};
+		}
+
+#define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
+	instance.name = reinterpret_cast<PFN_vk##name>(GetInstanceProcAddr(instance._instance, "vk" #name));               \
+	if (!instance.name)                                                                                                \
+	{                                                                                                                  \
+		std::cout << "Could not load instance-level Vulkan function \"vk" #name "\"\n";                                \
+		return {};                                                                                                     \
+	}
+
+#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSTION(name, extension)                                                \
+	for (auto& enabledExtension : extensions)                                                                          \
+	{                                                                                                                  \
+		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
+		{                                                                                                              \
+			instance.name = reinterpret_cast<PFN_vk##name>(GetInstanceProcAddr(instance._instance, "vk" #name));       \
+			if (!instance.name)                                                                                        \
+			{                                                                                                          \
+				std::cout << "Could not load instance-level Vulkan function \"vk" #name "\"\n";                        \
+				return {};                                                                                             \
+			}                                                                                                          \
+			break;                                                                                                     \
+		}                                                                                                              \
+	}
+
+#include <vk/impl/list_of_vulkan_functions.inl>
 
 		return instance;
 	}
