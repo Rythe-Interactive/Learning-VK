@@ -302,6 +302,34 @@ namespace vk
 		return m_availableExtensions;
 	}
 
+	std::span<const queue_family_properties> physical_device::get_available_queue_families(bool forceRefresh)
+	{
+		if (forceRefresh || m_availableQueueFamilies.empty())
+		{
+			rsl::uint32 queueFamilyCount = 0;
+
+			vkGetPhysicalDeviceQueueFamilyProperties(m_physicalDevice, &queueFamilyCount, nullptr);
+			if (queueFamilyCount == 0)
+			{
+				std::cout << "Count not query the number of queue families.\n";
+				return {};
+			}
+
+			m_availableQueueFamilies.resize(queueFamilyCount);
+			vkGetPhysicalDeviceQueueFamilyProperties(
+				m_physicalDevice, &queueFamilyCount, m_availableQueueFamilies.data()
+			);
+
+			if (queueFamilyCount == 0)
+			{
+				std::cout << "Could not get queue family properties.\n";
+				return {};
+			}
+		}
+
+		return m_availableQueueFamilies;
+	}
+
 	const physical_device_features& physical_device::get_features(bool forceRefresh)
 	{
 		if (forceRefresh || !m_featuresLoaded)

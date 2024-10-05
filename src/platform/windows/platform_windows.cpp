@@ -2,13 +2,13 @@
 
 #if RYTHE_PLATFORM_WINDOWS
 
-#define WIN32_LEAN_AND_MEAN
-#define VC_EXTRALEAN
-#define NOMINMAX
-#include <Windows.h>
+	#define WIN32_LEAN_AND_MEAN
+	#define VC_EXTRALEAN
+	#define NOMINMAX
+	#include <Windows.h>
 
-#define RYTHE_DYNAMIC_LIBRARY_HANDLE_IMPL HMODULE
-#include <platform/platform.hpp>
+	#define RYTHE_DYNAMIC_LIBRARY_HANDLE_IMPL HMODULE
+	#include <platform/platform.hpp>
 
 namespace rsl
 {
@@ -23,6 +23,6 @@ namespace rsl
 	{
 		return reinterpret_cast<void*>(GetProcAddress(library.m_handle, symbolName));
 	}
-}
+} // namespace rsl
 
 #endif

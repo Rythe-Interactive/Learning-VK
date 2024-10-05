@@ -47,16 +47,16 @@ namespace vk
 		semver::version version;
 	};
 
-	struct instance;
+	class instance;
 
 	instance create_instance(
 		const application_info& applicationInfo, const semver::version& apiVersion = {1, 0, 0},
 		std::span<const char*> extensions = {}
 	);
 
-	struct physical_device;
+	class physical_device;
 
-	struct instance
+	class instance
 	{
 		operator bool() const { return m_instance != VK_NULL_HANDLE; }
 
@@ -97,13 +97,16 @@ namespace vk
 		VkPhysicalDeviceSparseProperties sparseProperties;
     };
 
-	struct physical_device
+    using queue_family_properties = VkQueueFamilyProperties;
+
+	class physical_device
 	{
 		operator bool() const { return m_physicalDevice != VK_NULL_HANDLE; }
 
 		const physical_device_properties& get_properties(bool forceRefresh = false);
 		const physical_device_features& get_features(bool forceRefresh = false);
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
+		std::span<const queue_family_properties> get_available_queue_families(bool forceRefresh = false);
 
         bool initialize(std::span<const char*> extensions);
 
@@ -119,10 +122,16 @@ namespace vk
         bool m_propertiesLoaded = false;
 		physical_device_properties m_properties;
 		std::vector<extension_properties> m_availableExtensions;
+		std::vector<queue_family_properties> m_availableQueueFamilies;
 
 		VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 		friend struct instance;
 	};
 
     std::string_view to_string(VkPhysicalDeviceType type);
+
+    struct render_device
+    {
+
+    };
 } // namespace vk
