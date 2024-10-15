@@ -116,6 +116,9 @@ lib/*
 # Rythe Precompiled shader files
 *.shil
 
+# Rythe Includes
+include/**
+
 # Misc
 */**/Thumbs.db
 applications/sandbox/imgui.ini
@@ -125,6 +128,8 @@ applications/sandbox/imgui.ini
 docs/venv
 **/__pycache__/**
 **/imgui.ini
+*.sln
+*.vcxproj
 *.filters
 build/.cmake
 build/CMakeFiles

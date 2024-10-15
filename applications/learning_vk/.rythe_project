@@ -1,0 +1,9 @@
+local project = {
+    dependencies = {
+        "public rythe/rythe-standard-library",
+        "public third_party/semver:header-only",
+        "public third_party/vulkan:header-only"
+    }
+}
+
+return project
