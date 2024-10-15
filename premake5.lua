@@ -1,5 +1,5 @@
 -- root workspace, all sub-project should be included
-workspace "learning_vk"
+workspace "learning-vk"
     location("build/" .. _ACTION)
     configurations { "Debug", "Development", "Release" }
 
