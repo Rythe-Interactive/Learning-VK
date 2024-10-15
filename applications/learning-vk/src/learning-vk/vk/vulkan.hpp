@@ -1,6 +1,7 @@
 #pragma once
 
-#include <platform/platform.hpp>
+#include <rsl/platform>
+#include <rsl/math>
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
@@ -23,7 +24,6 @@
 	#endif
 #endif
 
-#include <rsl/primitives>
 #include <semver/semver.hpp>
 #include <span>
 
@@ -71,7 +71,7 @@ namespace vk
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) PFN_##name name;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_##name name;
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) PFN_##name name;
-#include <vk/impl/list_of_vulkan_functions.inl>
+#include "impl/list_of_vulkan_functions.inl"
 
 		std::vector<physical_device> m_physicalDevices;
 
@@ -98,7 +98,7 @@ namespace vk
 		VkPhysicalDeviceSparseProperties sparseProperties;
 	};
 
-    enum struct queue_feature_flags
+	enum struct queue_feature_flags
 	{
 		GRAPHICS = 0x00000001,
 		COMPUTE = 0x00000002,
@@ -110,13 +110,13 @@ namespace vk
 		OPTICAL_FLOW_NV = 0x00000100,
 	};
 
-    struct queue_family_properties
-    {
+	struct queue_family_properties
+	{
 		queue_feature_flags features;
 		rsl::uint32 queueCount;
 		rsl::uint32 timestampValidBits;
-		rsl::uint3 minImageTransferGranularity;
-    };
+		rsl::math::uint3 minImageTransferGranularity;
+	};
 
 	class physical_device
 	{
@@ -135,7 +135,7 @@ namespace vk
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) PFN_##name name;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_##name name;
-#include <vk/impl/list_of_vulkan_functions.inl>
+#include "impl/list_of_vulkan_functions.inl"
 
 		bool m_featuresLoaded = false;
 		physical_device_features m_features;

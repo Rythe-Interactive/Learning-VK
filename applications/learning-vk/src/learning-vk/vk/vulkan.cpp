@@ -1,6 +1,4 @@
-#include <vk/vulkan.hpp>
-
-#include <platform/platform_dependent_var.hpp>
+#include "vulkan.hpp"
 
 namespace vk
 {
@@ -28,8 +26,7 @@ namespace vk
 
 #define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name;
 #define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name;
-
-#include <vk/impl/list_of_vulkan_functions.inl>
+#include "impl/list_of_vulkan_functions.inl"
 
 	bool init()
 	{
@@ -62,7 +59,7 @@ namespace vk
 		return false;                                                                                                  \
 	}
 
-#include <vk/impl/list_of_vulkan_functions.inl>
+#include "impl/list_of_vulkan_functions.inl"
 
 		libraryIsInitialized = true;
 
@@ -202,8 +199,7 @@ namespace vk
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) physicalDevice.name = name;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) physicalDevice.name = name;
-
-#include <vk/impl/list_of_vulkan_functions.inl>
+#include "impl/list_of_vulkan_functions.inl"
 			}
 		}
 
@@ -258,7 +254,7 @@ namespace vk
 		}                                                                                                              \
 	}
 
-#include <vk/impl/list_of_vulkan_functions.inl>
+#include "impl/list_of_vulkan_functions.inl"
 
 		return true;
 	}
@@ -315,15 +311,31 @@ namespace vk
 				return {};
 			}
 
-			m_availableQueueFamilies.resize(queueFamilyCount);
-			vkGetPhysicalDeviceQueueFamilyProperties(
-				m_physicalDevice, &queueFamilyCount, m_availableQueueFamilies.data()
-			);
+			std::vector<VkQueueFamilyProperties> queueFamiliesBuffer;
+			queueFamiliesBuffer.resize(queueFamilyCount);
+			vkGetPhysicalDeviceQueueFamilyProperties(m_physicalDevice, &queueFamilyCount, queueFamiliesBuffer.data());
 
 			if (queueFamilyCount == 0)
 			{
 				std::cout << "Could not get queue family properties.\n";
 				return {};
+			}
+
+			m_availableQueueFamilies.clear();
+			m_availableQueueFamilies.reserve(queueFamilyCount);
+			for (auto& queueFamily : queueFamiliesBuffer)
+			{
+				m_availableQueueFamilies.push_back({
+					.features = static_cast<queue_feature_flags>(queueFamily.queueFlags),
+					.queueCount = queueFamily.queueCount,
+					.timestampValidBits = queueFamily.timestampValidBits,
+					.minImageTransferGranularity =
+						rsl::math::uint3{
+										 queueFamily.minImageTransferGranularity.width,
+										 queueFamily.minImageTransferGranularity.height,
+										 queueFamily.minImageTransferGranularity.depth,
+										 },
+				});
 			}
 		}
 

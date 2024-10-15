@@ -1,6 +1,8 @@
 #include <iostream>
 
-#include <vk/vulkan.hpp>
+#include <rsl/utilities>
+
+#include "vk/vulkan.hpp"
 
 int main()
 {
@@ -121,29 +123,29 @@ int main()
 			std::cout << "\t\t" << i << ":\n";
 			std::cout << "\t\t\tallowed operations:\n";
 
-#define PRINT_FLAG(name)                                                                                               \
-	if (queueFamily.queueFlags & name)                                                                                 \
+#define PRINT_FEATURE(name)                                                                                            \
+	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::name))                                \
 	{                                                                                                                  \
 		std::cout << "\t\t\t\t" #name "\n";                                                                            \
 	}
 
-			PRINT_FLAG(VK_QUEUE_GRAPHICS_BIT);
-			PRINT_FLAG(VK_QUEUE_COMPUTE_BIT);
-			PRINT_FLAG(VK_QUEUE_TRANSFER_BIT);
-			PRINT_FLAG(VK_QUEUE_SPARSE_BINDING_BIT);
-			PRINT_FLAG(VK_QUEUE_PROTECTED_BIT);
-			PRINT_FLAG(VK_QUEUE_VIDEO_DECODE_BIT_KHR);
-			PRINT_FLAG(VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
-			PRINT_FLAG(VK_QUEUE_OPTICAL_FLOW_BIT_NV);
+			PRINT_FEATURE(GRAPHICS);
+			PRINT_FEATURE(COMPUTE);
+			PRINT_FEATURE(TRANSFER);
+			PRINT_FEATURE(SPARSE_BINDING);
+			PRINT_FEATURE(PROTECTED);
+			PRINT_FEATURE(VIDEO_DECODE);
+			PRINT_FEATURE(VIDEO_ENCODE);
+			PRINT_FEATURE(OPTICAL_FLOW_NV);
 
-#undef PRINT_FLAG
+#undef PRINT_FEATURE
 
 			std::cout << "\t\t\tallowed amount: " << queueFamily.queueCount << '\n';
 			std::cout << "\t\t\ttimestamp valid bits: " << queueFamily.timestampValidBits << '\n';
 			std::cout << "\t\t\tminimum image transfer resolution:\n";
-			std::cout << "\t\t\t\twidth: " << queueFamily.minImageTransferGranularity.width << '\n';
-			std::cout << "\t\t\t\theight: " << queueFamily.minImageTransferGranularity.height << '\n';
-			std::cout << "\t\t\t\tdepth: " << queueFamily.minImageTransferGranularity.depth << '\n';
+			std::cout << "\t\t\t\twidth: " << queueFamily.minImageTransferGranularity.x << '\n';
+			std::cout << "\t\t\t\theight: " << queueFamily.minImageTransferGranularity.y << '\n';
+			std::cout << "\t\t\t\tdepth: " << queueFamily.minImageTransferGranularity.z << '\n';
 
 			i++;
 		}
