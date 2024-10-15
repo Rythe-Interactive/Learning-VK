@@ -58,6 +58,7 @@ namespace vk
 
 	class instance
 	{
+	public:
 		operator bool() const { return m_instance != VK_NULL_HANDLE; }
 
 		std::span<physical_device> get_physical_devices(bool forceRefresh = false);
@@ -82,10 +83,10 @@ namespace vk
 		);
 	};
 
-    using physical_device_features = VkPhysicalDeviceFeatures;
+	using physical_device_features = VkPhysicalDeviceFeatures;
 
-    struct physical_device_properties
-    {
+	struct physical_device_properties
+	{
 		semver::version apiVersion;
 		semver::version driverVersion;
 		rsl::uint32 vendorID;
@@ -95,12 +96,31 @@ namespace vk
 		rsl::uint8 pipelineCacheUUID[VK_UUID_SIZE];
 		VkPhysicalDeviceLimits limits;
 		VkPhysicalDeviceSparseProperties sparseProperties;
-    };
+	};
 
-    using queue_family_properties = VkQueueFamilyProperties;
+    enum struct queue_feature_flags
+	{
+		GRAPHICS = 0x00000001,
+		COMPUTE = 0x00000002,
+		TRANSFER = 0x00000004,
+		SPARSE_BINDING = 0x00000008,
+		PROTECTED = 0x00000010,
+		VIDEO_DECODE = 0x00000020,
+		VIDEO_ENCODE = 0x00000040,
+		OPTICAL_FLOW_NV = 0x00000100,
+	};
+
+    struct queue_family_properties
+    {
+		queue_feature_flags features;
+		rsl::uint32 queueCount;
+		rsl::uint32 timestampValidBits;
+		rsl::uint3 minImageTransferGranularity;
+    };
 
 	class physical_device
 	{
+	public:
 		operator bool() const { return m_physicalDevice != VK_NULL_HANDLE; }
 
 		const physical_device_properties& get_properties(bool forceRefresh = false);
@@ -108,7 +128,7 @@ namespace vk
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
 		std::span<const queue_family_properties> get_available_queue_families(bool forceRefresh = false);
 
-        bool initialize(std::span<const char*> extensions);
+		bool initialize(std::span<const char*> extensions);
 
 	private:
 		bool load_functions(std::span<const char*> extensions);
@@ -117,21 +137,21 @@ namespace vk
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_##name name;
 #include <vk/impl/list_of_vulkan_functions.inl>
 
-        bool m_featuresLoaded = false;
-        physical_device_features m_features;
-        bool m_propertiesLoaded = false;
+		bool m_featuresLoaded = false;
+		physical_device_features m_features;
+		bool m_propertiesLoaded = false;
 		physical_device_properties m_properties;
 		std::vector<extension_properties> m_availableExtensions;
 		std::vector<queue_family_properties> m_availableQueueFamilies;
 
 		VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-		friend struct instance;
+		friend class instance;
 	};
 
-    std::string_view to_string(VkPhysicalDeviceType type);
+	std::string_view to_string(VkPhysicalDeviceType type);
 
-    struct render_device
-    {
+	class render_device
+	{
 
-    };
+	};
 } // namespace vk
