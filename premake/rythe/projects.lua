@@ -8,6 +8,35 @@ local buildSettings = rythe.buildSettings
 
 local projects = {}
 
+-- ============================================================================================================================================================================================================
+-- =============================================================================== PROJECT STRUCTURE DEFINITION ===============================================================================================
+-- ============================================================================================================================================================================================================
+
+--  Field name                          | Default value                 | Description
+-- ============================================================================================================================================================================================================
+--  init                                | nil                           | Initialization function, this allows you to dynamically change project fields upon project load based on the workspace context
+--  alias                               | <Project name>                | Alias for the project name
+--  namespace                           | <Project name>                | Project namespace, also used for folder structures
+--  types                               | <Based on folder structure>   | Target types this projet uses, valid values: "application", "module", "editor", "library", "header-only", "util", "test"
+--  additional_types                    | [empty]                       | Extra target types to add to the project, can be used if you don't want to override the default project types
+--  dependencies                        | [empty]                       | Project dependency definitions, format: [(optional)<public|private>(default <private>)] [path][(optional):<type>(default <library>)]
+--  fast_up_to_date_check               | true                          | Enable or disable Visual Studio check if project outputs are already up to date (handy to turn off on util projects)
+--  warning_level                       | "High"                        | Compiler warning level to enable, valid values: "Off", "Default", "Extra", "High", "Everything"
+--  warnings_as_errors                  | true                          | Treat warnings as errors
+--  additional_warnings                 | nil                           | List of additional warnings to enable, for Visual Studio this needs to be the warning number instead of the name
+--  exclude_warnings                    | nil                           | List of warnings to explicitly disable, for Visual Studio this needs to be the warning number instead of the name
+--  floating_point_config               | "Default"                     | Floating point configuration for the compiler to use, valid values: "Default", "Fast", "Strict", "None"
+--  vector_extensions                   | nil                           | Which vector extension to enable, see: https://premake.github.io/docs/vectorextensions/
+--  defines                             | [empty]                       | Additional defines on top of the default ones Rythe will add (PROJECT_NAME, PROJECT_FULL_NAME, PROJECT_NAMESPACE)
+--  files                               | ["./**"]                      | File filter patterns to find source files with
+--  exclude_files                       | nil                           | Exclude patterns to exclude source files with
+--  additional_include_dirs             | [empty]                       | Additional include dirs for #include ""
+--  additional_external_include_dirs    | [empty]                       | Additional external include dirs for #include <> on top of the ones Rythe will auto detect from dependencies
+--  pre_build                           | nil                           | Prebuild command
+--  post_build                          | nil                           | Postbuild command
+--  pre_link                            | nil                           | Prelink command
+
+
 local function folderToProjectType(projectFolder)
     if projectFolder == "applications" then
         return "application"
@@ -211,8 +240,8 @@ local function loadProject(projectId, project, projectPath, name, projectType)
         project.types = utils.concatTables(project.types, project.additional_types)
     end
 
-    if project.warnings == nil then
-        project.warnings = "High"
+    if project.warning_level == nil then
+        project.warning_level = "High"
     end
 
     if project.warnings_as_errors == nil then
@@ -555,7 +584,7 @@ function projects.submit(proj)
                 toolset(buildSettings.toolset)
                 language("C++")
                 cppdialect(buildSettings.cppVersion)
-                warnings(proj.warnings)
+                warnings(proj.warning_level)
                 floatingpoint(proj.floating_point_config)
 
                 if proj.additional_warnings ~= nil then
