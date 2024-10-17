@@ -1,6 +1,3 @@
-[submodule "dep/rsl"]
-	path = dep/rsl
-	url = https://github.com/Rythe-Interactive/Rythe-Standard-Library.git
 [submodule "libraries/rythe/rythe-standard-library"]
 	path = libraries/rythe/rythe-standard-library
 	url = https://github.com/Rythe-Interactive/Rythe-Standard-Library.git
