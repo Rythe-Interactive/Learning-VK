@@ -47,7 +47,7 @@ int wmain()
 
 		std::cout << "\tfeatures:\n";
 #define PRINT_FEATURE(name)                                                                                            \
-	if (features.name == VK_TRUE)                                                                                      \
+	if (features.name)                                                                                                 \
 	{                                                                                                                  \
 		std::cout << "\t\t" #name "\n";                                                                                \
 	}
@@ -129,14 +129,14 @@ int wmain()
 		std::cout << "\t\t\t\t" #name "\n";                                                                            \
 	}
 
-			PRINT_FEATURE(GRAPHICS);
-			PRINT_FEATURE(COMPUTE);
-			PRINT_FEATURE(TRANSFER);
-			PRINT_FEATURE(SPARSE_BINDING);
-			PRINT_FEATURE(PROTECTED);
-			PRINT_FEATURE(VIDEO_DECODE);
-			PRINT_FEATURE(VIDEO_ENCODE);
-			PRINT_FEATURE(OPTICAL_FLOW_NV);
+			PRINT_FEATURE(Graphics);
+			PRINT_FEATURE(Compute);
+			PRINT_FEATURE(Transfer);
+			PRINT_FEATURE(SparseBinding);
+			PRINT_FEATURE(Protected);
+			PRINT_FEATURE(VideoDecode);
+			PRINT_FEATURE(VideoEncode);
+			PRINT_FEATURE(OpticalFlowNV);
 
 #undef PRINT_FEATURE
 
