@@ -142,18 +142,25 @@ local function projectNameSuffix(projectType)
     return ""
 end
 
-local function projectTypeFilesDir(projectType, namespace)
+local function projectTypeFilesDir(location, projectType, namespace)
     if projectType == "test" then
-        return "/tests/"
+        return location .. "/tests/"
     elseif projectType == "editor" then
-        return "/editor/"
+        return location .. "/editor/"
     end
 
-    if namespace == "" or namespace == nil then
-        return "/src/"
+    local namespaceSrcDir = location .. "/src/" .. namespace .. "/"
+
+    if namespace == "" or namespace == nil or os.isdir(namespaceSrcDir) ~= true then
+        local srcDir = location .. "/src/"
+        if os.isdir(srcDir) then
+            return srcDir
+        else
+            return location .. "/"
+        end
     end
 
-    return "/src/" .. namespace .. "/"
+    return namespaceSrcDir
 end
 
 local function isProjectTypeMainType(projectType)
@@ -202,6 +209,18 @@ local function loadProject(projectId, project, projectPath, name, projectType)
 
     if not utils.tableIsEmpty(project.additional_types) then
         project.types = utils.concatTables(project.types, project.additional_types)
+    end
+
+    if project.warnings == nil then
+        project.warnings = "High"
+    end
+
+    if project.warnings_as_errors == nil then
+        project.warnings_as_errors = true
+    end
+
+    if project.floating_point_config == nil then
+        project.floating_point_config = "Default"
     end
 
     if utils.tableIsEmpty(project.defines) then
@@ -325,6 +344,7 @@ end
 local function setupDebug(projectType, linkTargets)
     filter("configurations:Debug")
         defines { "DEBUG" }
+        optimize("Debug")
         symbols("On")
         kind(kindName(projectType, rythe.Configuration.DEBUG))
         links(appendConfigSuffix(linkTargets, rythe.Configuration.DEBUG))
@@ -484,11 +504,10 @@ function projects.submit(proj)
                     local depProject, depId, depType = findAssembly(assemblyId)
 
                     if depProject ~= nil then
-                        externalIncludeDirs[#externalIncludeDirs + 1] = depProject.location .. projectTypeFilesDir(depType, "")
+                        externalIncludeDirs[#externalIncludeDirs + 1] = projectTypeFilesDir(depProject.location, depType, "")
                         
-                        if isThirdPartyProject(depId) then
+                        if isThirdPartyProject(depId) and os.isdir(depProject.location .. "/include/") then
                             externalIncludeDirs[#externalIncludeDirs + 1] = depProject.location .. "/include/"
-                            externalIncludeDirs[#externalIncludeDirs + 1] = depProject.location .. "/"
                         end
 
                         depNames[#depNames + 1] = depProject.alias .. projectNameSuffix(depType)
@@ -536,14 +555,45 @@ function projects.submit(proj)
                 toolset(buildSettings.toolset)
                 language("C++")
                 cppdialect(buildSettings.cppVersion)
+                warnings(proj.warnings)
+                floatingpoint(proj.floating_point_config)
+
+                if proj.additional_warnings ~= nil then
+                    enablewarnings(proj.additional_warnings)
+                end
+
+                if proj.exclude_warnings ~= nil then
+                    disablewarnings(proj.exclude_warnings)
+                end
+
+                local compileFlags = { }
+
+                if proj.warnings_as_errors then
+                    compileFlags[#compileFlags + 1] = "FatalWarnings"
+                end
+
+                flags(compileFlags)
+
+                if proj.vector_extensions ~= nil then
+                    vectorextensions(proj.vector_extensions)
+                end
             end
 
             local filePatterns = {}
+
+            if projectType == "application" then
+                filter { "system:windows" }
+				    files { proj.location .. "/**resources.rc", proj.location .. "/**.ico" }
+		  	    filter {}
+            end
+
+            local projectSrcDir = projectTypeFilesDir(proj.location, projectType, proj.namespace)
+
             for i, pattern in ipairs(proj.files) do
                 if string.find(pattern, "^(%.[/\\])") == nil then
                     filePatterns[#filePatterns + 1] = pattern
                 else
-                    filePatterns[#filePatterns + 1] = proj.location .. projectTypeFilesDir(projectType, proj.namespace) .. string.sub(pattern, 3)
+                    filePatterns[#filePatterns + 1] = projectSrcDir .. string.sub(pattern, 3)
                 end
             end
 
@@ -555,7 +605,7 @@ function projects.submit(proj)
 
             filePatterns[#filePatterns + 1] = proj.src
 
-            vpaths({ ["*"] = { proj.location .. projectTypeFilesDir(projectType, proj.namespace), fs.parentPath(proj.src) }})
+            vpaths({ ["*"] = { projectSrcDir, fs.parentPath(proj.src) }})
             files(filePatterns)
 
             if not utils.tableIsEmpty(proj.exclude_files) then
@@ -564,7 +614,7 @@ function projects.submit(proj)
                     if string.find(pattern, "^(%.[/\\])") == nil then
                         excludePatterns[#excludePatterns + 1] = pattern
                     else
-                        excludePatterns[#excludePatterns + 1] = proj.location .. projectTypeFilesDir(projectType, proj.namespace) .. string.sub(pattern, 3)
+                        excludePatterns[#excludePatterns + 1] = projectSrcDir .. string.sub(pattern, 3)
                     end
                 end
 

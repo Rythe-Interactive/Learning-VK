@@ -11,7 +11,8 @@
 	#define WIN32_LEAN_AND_MEAN
 	#define VC_EXTRALEAN
 	#define NOMINMAX
-	#include <Windows.h>
+	#include <windef.h>
+	#include <minwinbase.h>
 	#include <vulkan/vulkan_win32.h>
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
@@ -66,11 +67,11 @@ namespace vk
 	private:
 		bool load_functions(std::span<const char*> extensions);
 
-#define INSTANCE_LEVEL_VULKAN_FUNCTION(name) PFN_##name name;
-#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_##name name;
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) PFN_##name name;
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_##name name;
-#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) PFN_##name name;
+#define INSTANCE_LEVEL_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name;
+#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name;
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name;
 #include "impl/list_of_vulkan_functions.inl"
 
 		std::vector<physical_device> m_physicalDevices;
@@ -133,8 +134,8 @@ namespace vk
 	private:
 		bool load_functions(std::span<const char*> extensions);
 
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) PFN_##name name;
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) PFN_##name name;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name;
 #include "impl/list_of_vulkan_functions.inl"
 
 		bool m_featuresLoaded = false;

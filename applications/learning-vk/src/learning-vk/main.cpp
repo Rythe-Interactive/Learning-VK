@@ -4,7 +4,7 @@
 
 #include "vk/vulkan.hpp"
 
-int main()
+int wmain()
 {
 	if (!vk::init())
 	{
