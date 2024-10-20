@@ -273,6 +273,17 @@ namespace vk
 		return "unknown";
 	}
 
+	std::string_view to_string(queue_priority priority)
+	{
+		switch (priority)
+		{
+			case queue_priority::Normal: return "Normal";
+			case queue_priority::High: return "High";
+		}
+
+		return "unknown";
+	}
+
 	class native_physical_device_vk
 	{
 	public:
@@ -307,7 +318,7 @@ namespace vk
 		using handle_type = native_physical_device;
 	};
 
-	instance::operator bool() const
+	instance::operator bool() const noexcept
 	{
 		return get_native_ptr(*this)->instance != VK_NULL_HANDLE;
 	}
@@ -730,7 +741,7 @@ namespace vk
 
 	} // namespace
 
-	physical_device::operator bool() const
+	physical_device::operator bool() const noexcept
 	{
 		return get_native_ptr(*this)->physicalDevice != VK_NULL_HANDLE;
 	}
@@ -767,7 +778,114 @@ namespace vk
 	render_device
 	physical_device::create_render_device([[maybe_unused]] std::span<const queue_description> queueDesciptions)
 	{
+		struct queue_construction_info
+		{
+			rsl::size_type familyIndex = -1ull;
+			rsl::size_type score = 0;
+			queue_priority priority;
+		};
 
+		std::vector<queue_construction_info> queueConstructionInfos;
+		queueConstructionInfos.resize(queueDesciptions.size());
+
+		for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
+		{
+			queueConstructionInfos[i].priority = queueDesciptions[i].priority;
+			queueConstructionInfos[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
+		}
+
+        auto queueFamilies = get_available_queue_families();
+
+		rsl::size_type familyIndex = 0;
+		for (auto& queueFamily : queueFamilies)
+		{
+			rsl::size_type queueIndex = 0;
+			for (auto& queueDesciption : queueDesciptions)
+			{
+				auto& queueInfo = queueConstructionInfos[queueIndex];
+
+				if (queueDesciption.queueFamilyIndexOverride != -1ull ||
+					!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
+					queueFamily.queueCount == 0)
+				{
+					queueIndex++;
+					continue;
+				}
+
+				rsl::size_type score = 1;
+
+				score += queueFamily.queueCount * queueDesciption.queueCountImportance;
+				score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
+
+				if (queueDesciption.imageTransferGranularityImportance != 0ull)
+				{
+					rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
+
+					score += maxScore - rsl::math::min(
+											maxScore, ((queueFamily.minImageTransferGranularity.x +
+														queueFamily.minImageTransferGranularity.y +
+														queueFamily.minImageTransferGranularity.z) /
+													   3u) *
+														  queueDesciption.imageTransferGranularityImportance
+										);
+				}
+
+				if (score > queueInfo.score)
+				{
+					queueInfo.familyIndex = familyIndex;
+					queueInfo.score = score;
+				}
+
+				queueIndex++;
+			}
+			familyIndex++;
+		}
+
+        std::cout << "selected queues:\n";
+
+        rsl::size_type queueIndex = 0;
+		for (auto& [familyIndex, score, priority] : queueConstructionInfos)
+		{
+			std::cout << "\t" << queueIndex << ":\n";
+
+            if (familyIndex >= queueFamilies.size())
+			{
+				std::cout << "\t\tNOT FOUND\n";
+				continue;
+            }
+
+			auto& queueFamily = queueFamilies[familyIndex];
+
+			std::cout << "\t\tscore: " << score << '\n';
+			std::cout << "\t\tpriority: " << to_string(priority) << '\n';
+			std::cout << "\t\tallowed operations:\n";
+
+#define PRINT_FEATURE(name)                                                                                            \
+	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::name))                                \
+	{                                                                                                                  \
+		std::cout << "\t\t\t\t" #name "\n";                                                                            \
+	}
+
+			PRINT_FEATURE(Graphics);
+			PRINT_FEATURE(Compute);
+			PRINT_FEATURE(Transfer);
+			PRINT_FEATURE(SparseBinding);
+			PRINT_FEATURE(Protected);
+			PRINT_FEATURE(VideoDecode);
+			PRINT_FEATURE(VideoEncode);
+			PRINT_FEATURE(OpticalFlowNV);
+
+#undef PRINT_FEATURE
+
+			std::cout << "\t\tallowed amount: " << queueFamily.queueCount << '\n';
+			std::cout << "\t\ttimestamp valid bits: " << queueFamily.timestampValidBits << '\n';
+			std::cout << "\t\tminimum image transfer resolution:\n";
+			std::cout << "\t\t\twidth: " << queueFamily.minImageTransferGranularity.x << '\n';
+			std::cout << "\t\t\theight: " << queueFamily.minImageTransferGranularity.y << '\n';
+			std::cout << "\t\t\tdepth: " << queueFamily.minImageTransferGranularity.z << '\n';
+
+			queueIndex++;
+		}
 
 		return render_device();
 	}
@@ -776,4 +894,30 @@ namespace vk
 	{
 		return false;
 	}
+
+	class native_render_device_vk
+	{
+	public:
+		VkDevice device = VK_NULL_HANDLE;
+	};
+
+	template <>
+	struct native_handle_traits<render_device>
+	{
+		using native_type = native_render_device_vk;
+		using handle_type = native_render_device;
+	};
+
+	template <>
+	struct native_handle_traits<native_render_device_vk>
+	{
+		using api_type = render_device;
+		using handle_type = native_render_device;
+	};
+
+	render_device::operator bool() const noexcept
+	{
+		return get_native_ptr(*this)->device != VK_NULL_HANDLE;
+	}
+
 } // namespace vk

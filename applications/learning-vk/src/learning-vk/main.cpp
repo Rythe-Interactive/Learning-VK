@@ -149,6 +149,25 @@ int wmain()
 
 			i++;
 		}
+
+		vk::queue_description descs[] = {
+			{
+             .requiredFeatures = vk::queue_feature_flags::Graphics,
+			 },
+			{
+             .requiredFeatures = vk::queue_feature_flags::Compute,
+			 },
+			{
+             .requiredFeatures = vk::queue_feature_flags::Transfer,
+			 },
+			{
+             .requiredFeatures = vk::queue_feature_flags::VideoDecode,
+			 },
+			{
+             .queueFamilyIndexOverride = 4,
+			 },
+		};
+		device.create_render_device(descs);
 	}
 
 	std::cout << "Everything fine so far!\n";

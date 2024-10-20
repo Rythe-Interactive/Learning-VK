@@ -40,7 +40,7 @@ namespace vk
 	class instance
 	{
 	public:
-		operator bool() const;
+		operator bool() const noexcept;
 
 		std::span<physical_device> get_physical_devices(bool forceRefresh = false);
 
@@ -282,8 +282,8 @@ namespace vk
 	struct queue_family_properties
 	{
 		queue_feature_flags features;
-		rsl::uint32 queueCount;
-		rsl::uint32 timestampValidBits;
+		rsl::size_type queueCount;
+		rsl::size_type timestampValidBits;
 		rsl::math::uint3 minImageTransferGranularity;
 	};
 
@@ -293,14 +293,18 @@ namespace vk
 		High,
 	};
 
+	std::string_view to_string(queue_priority priority);
+
 	struct queue_description
 	{
-		rsl::uint32 queueFamilyIndexOverride = -1u;
-		queue_priority priority;
+		rsl::size_type queueFamilyIndexOverride = -1ull;
+		queue_priority priority = queue_priority::Normal;
 
 		// For auto family selection
 		queue_feature_flags requiredFeatures;
-		bool mustSupportTimeStamps;
+		rsl::size_type queueCountImportance = 8ull;
+		rsl::size_type timestampImportance = 2ull;
+		rsl::size_type imageTransferGranularityImportance = 1ull;
 	};
 
 	class render_device;
@@ -310,7 +314,7 @@ namespace vk
 	class physical_device
 	{
 	public:
-		operator bool() const;
+		operator bool() const noexcept;
 
 		const physical_device_properties& get_properties(bool forceRefresh = false);
 		const physical_device_features& get_features(bool forceRefresh = false);
@@ -328,7 +332,17 @@ namespace vk
 		friend class instance;
 	};
 
+    DECLARE_OPAQUE_HANDLE(native_render_device);
+
 	class render_device
 	{
+	public:
+		operator bool() const noexcept;
+
+		rythe_always_inline native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
+
+    private:
+		native_render_device m_nativeRenderDevice = invalid_native_render_device;
+		friend class physical_device;
 	};
 } // namespace vk
