@@ -218,6 +218,8 @@ namespace vk
 	class native_render_device_vk
 	{
 	public:
+		physical_device physicalDevice;
+
 		VkDevice device = VK_NULL_HANDLE;
 	};
 
@@ -406,17 +408,17 @@ namespace vk
 	{
 		auto* impl = get_native_ptr(*this);
 
-        std::vector<physical_device> newDeviceList;
+		std::vector<physical_device> newDeviceList;
 
 		for (auto& device : impl->physicalDevices)
 		{
-			auto ptr = get_native_ptr(device); 
+			auto ptr = get_native_ptr(device);
 			if (ptr != nullptr)
 			{
-                if (device.in_use())
-                {
+				if (device.in_use())
+				{
 					newDeviceList.push_back(device);
-                }
+				}
 				else
 				{
 					delete ptr;
@@ -439,7 +441,7 @@ namespace vk
 			}
 		}
 
-        impl->physicalDevices.clear();
+		impl->physicalDevices.clear();
 	}
 
 	render_device instance::auto_select_and_create_device(
@@ -447,7 +449,107 @@ namespace vk
 		std::span<const queue_description> queueDesciptions
 	)
 	{
-		return render_device();
+		auto physicalDevices = create_physical_devices();
+
+		rsl::size_type selectedDevice = -1ull;
+		rsl::size_type currentScore = 0;
+
+		rsl::size_type deviceIndex = 0;
+		for (auto& device : physicalDevices)
+		{
+			auto& props = device.get_properties();
+
+			if (props.apiVersion < physicalDeviceDescription.apiVersion)
+			{
+				continue;
+			}
+
+			auto& features = device.get_features();
+
+#define CHECK_FEATURE(feature)                                                                                         \
+	if (physicalDeviceDescription.requiredFeatures.feature && !features.feature)                                       \
+	{                                                                                                                  \
+		continue;                                                                                                      \
+	}
+
+            CHECK_FEATURE(robustBufferAccess);
+			CHECK_FEATURE(fullDrawIndexUint32);
+			CHECK_FEATURE(imageCubeArray);
+			CHECK_FEATURE(independentBlend);
+			CHECK_FEATURE(geometryShader);
+			CHECK_FEATURE(tessellationShader);
+			CHECK_FEATURE(sampleRateShading);
+			CHECK_FEATURE(dualSrcBlend);
+			CHECK_FEATURE(logicOp);
+			CHECK_FEATURE(multiDrawIndirect);
+			CHECK_FEATURE(drawIndirectFirstInstance);
+			CHECK_FEATURE(depthClamp);
+			CHECK_FEATURE(depthBiasClamp);
+			CHECK_FEATURE(fillModeNonSolid);
+			CHECK_FEATURE(depthBounds);
+			CHECK_FEATURE(wideLines);
+			CHECK_FEATURE(largePoints);
+			CHECK_FEATURE(alphaToOne);
+			CHECK_FEATURE(multiViewport);
+			CHECK_FEATURE(samplerAnisotropy);
+			CHECK_FEATURE(textureCompressionETC2);
+			CHECK_FEATURE(textureCompressionASTC_LDR);
+			CHECK_FEATURE(textureCompressionBC);
+			CHECK_FEATURE(occlusionQueryPrecise);
+			CHECK_FEATURE(pipelineStatisticsQuery);
+			CHECK_FEATURE(vertexPipelineStoresAndAtomics);
+			CHECK_FEATURE(fragmentStoresAndAtomics);
+			CHECK_FEATURE(shaderTessellationAndGeometryPointSize);
+			CHECK_FEATURE(shaderImageGatherExtended);
+			CHECK_FEATURE(shaderStorageImageExtendedFormats);
+			CHECK_FEATURE(shaderStorageImageMultisample);
+			CHECK_FEATURE(shaderStorageImageReadWithoutFormat);
+			CHECK_FEATURE(shaderStorageImageWriteWithoutFormat);
+			CHECK_FEATURE(shaderUniformBufferArrayDynamicIndexing);
+			CHECK_FEATURE(shaderSampledImageArrayDynamicIndexing);
+			CHECK_FEATURE(shaderStorageBufferArrayDynamicIndexing);
+			CHECK_FEATURE(shaderStorageImageArrayDynamicIndexing);
+			CHECK_FEATURE(shaderClipDistance);
+			CHECK_FEATURE(shaderCullDistance);
+			CHECK_FEATURE(shaderFloat64);
+			CHECK_FEATURE(shaderInt64);
+			CHECK_FEATURE(shaderInt16);
+			CHECK_FEATURE(shaderResourceResidency);
+			CHECK_FEATURE(shaderResourceMinLod);
+			CHECK_FEATURE(sparseBinding);
+			CHECK_FEATURE(sparseResidencyBuffer);
+			CHECK_FEATURE(sparseResidencyImage2D);
+			CHECK_FEATURE(sparseResidencyImage3D);
+			CHECK_FEATURE(sparseResidency2Samples);
+			CHECK_FEATURE(sparseResidency4Samples);
+			CHECK_FEATURE(sparseResidency8Samples);
+			CHECK_FEATURE(sparseResidency16Samples);
+			CHECK_FEATURE(sparseResidencyAliased);
+			CHECK_FEATURE(variableMultisampleRate);
+			CHECK_FEATURE(inheritedQueries);
+
+#undef CHECK_FEATURE
+
+			rsl::size_type deviceScore = 1;
+
+			deviceScore +=
+				physicalDeviceDescription.deviceTypeImportance[static_cast<rsl::size_type>(props.deviceType)];
+
+			if (deviceScore > currentScore)
+			{
+				selectedDevice = deviceIndex;
+				currentScore = deviceScore;
+			}
+
+			deviceIndex++;
+		}
+
+		if (selectedDevice >= physicalDevices.size())
+		{
+			return render_device();
+		}
+
+		return physicalDevices[selectedDevice].create_render_device(queueDesciptions);
 	}
 
 	bool native_instance_vk::load_functions([[maybe_unused]] std::span<const char*> extensions)
@@ -859,7 +961,7 @@ namespace vk
 		return get_native_ptr(*this)->load_functions(extensions);
 	}
 
-	bool physical_device::in_use() const
+	bool physical_device::in_use() const noexcept
 	{
 		return get_native_ptr(*this)->renderDevice;
 	}
@@ -978,6 +1080,10 @@ namespace vk
 			queueIndex++;
 		}
 
+        auto* renderDevicePtr = new native_render_device_vk();
+		renderDevicePtr->physicalDevice = *this;
+
+        impl->renderDevice.m_nativeRenderDevice = create_native_handle(renderDevicePtr);
 		return impl->renderDevice;
 	}
 
@@ -1002,6 +1108,17 @@ namespace vk
 	{
 		auto ptr = get_native_ptr(*this);
 		return ptr != nullptr && ptr->device != VK_NULL_HANDLE;
+	}
+
+	physical_device render_device::get_physical_device() const noexcept
+	{
+		auto ptr = get_native_ptr(*this);
+        if (!ptr)
+        {
+			return physical_device();
+        }
+
+        return ptr->physicalDevice;
 	}
 
 } // namespace vk

@@ -31,8 +31,36 @@ int wmain()
 		return -1;
 	}
 
-	for (auto& device : instance.get_physical_devices())
+	vk::physical_device_description deviceDesc;
+
+	vk::queue_description queueDescs[] = {
+		{
+         .requiredFeatures = vk::queue_feature_flags::Graphics,
+		 },
+		{
+         .requiredFeatures = vk::queue_feature_flags::Compute,
+		 },
+		{
+         .requiredFeatures = vk::queue_feature_flags::Transfer,
+		 },
+		{
+         .requiredFeatures = vk::queue_feature_flags::VideoDecode,
+		 },
+		{
+         .queueFamilyIndexOverride = 4,
+		 },
+	};
+
+	auto renderDevice = instance.auto_select_and_create_device(deviceDesc, queueDescs);
+
+	if (renderDevice.get_native_handle() == vk::invalid_native_render_device)
 	{
+		std::cout << "NO DEVICE FOUND\n";
+		return -1;
+	}
+
+	{
+		auto device = renderDevice.get_physical_device();
 		auto& properties = device.get_properties();
 
 		std::cout << "Device:\n";
@@ -49,7 +77,11 @@ int wmain()
 #define PRINT_FEATURE(name)                                                                                            \
 	if (features.name)                                                                                                 \
 	{                                                                                                                  \
-		std::cout << "\t\t" #name "\n";                                                                                \
+		std::cout << "\t\t" #name ": yes\n";                                                                           \
+	}                                                                                                                  \
+	else                                                                                                               \
+	{                                                                                                                  \
+		std::cout << "\t\t" #name ": no\n";                                                                            \
 	}
 
 		PRINT_FEATURE(robustBufferAccess);
@@ -149,25 +181,6 @@ int wmain()
 
 			i++;
 		}
-
-		vk::queue_description descs[] = {
-			{
-             .requiredFeatures = vk::queue_feature_flags::Graphics,
-			 },
-			{
-             .requiredFeatures = vk::queue_feature_flags::Compute,
-			 },
-			{
-             .requiredFeatures = vk::queue_feature_flags::Transfer,
-			 },
-			{
-             .requiredFeatures = vk::queue_feature_flags::VideoDecode,
-			 },
-			{
-             .queueFamilyIndexOverride = 4,
-			 },
-		};
-		device.create_render_device(descs);
 	}
 
 	std::cout << "Everything fine so far!\n";

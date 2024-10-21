@@ -1,5 +1,6 @@
 #pragma once
 
+#include <rsl/primitives>
 #include <rsl/math>
 #include <rsl/platform>
 
@@ -37,61 +38,61 @@ namespace vk
 
 	struct physical_device_features
 	{
-		bool robustBufferAccess;
-		bool fullDrawIndexUint32;
-		bool imageCubeArray;
-		bool independentBlend;
-		bool geometryShader;
-		bool tessellationShader;
-		bool sampleRateShading;
-		bool dualSrcBlend;
-		bool logicOp;
-		bool multiDrawIndirect;
-		bool drawIndirectFirstInstance;
-		bool depthClamp;
-		bool depthBiasClamp;
-		bool fillModeNonSolid;
-		bool depthBounds;
-		bool wideLines;
-		bool largePoints;
-		bool alphaToOne;
-		bool multiViewport;
-		bool samplerAnisotropy;
-		bool textureCompressionETC2;
-		bool textureCompressionASTC_LDR;
-		bool textureCompressionBC;
-		bool occlusionQueryPrecise;
-		bool pipelineStatisticsQuery;
-		bool vertexPipelineStoresAndAtomics;
-		bool fragmentStoresAndAtomics;
-		bool shaderTessellationAndGeometryPointSize;
-		bool shaderImageGatherExtended;
-		bool shaderStorageImageExtendedFormats;
-		bool shaderStorageImageMultisample;
-		bool shaderStorageImageReadWithoutFormat;
-		bool shaderStorageImageWriteWithoutFormat;
-		bool shaderUniformBufferArrayDynamicIndexing;
-		bool shaderSampledImageArrayDynamicIndexing;
-		bool shaderStorageBufferArrayDynamicIndexing;
-		bool shaderStorageImageArrayDynamicIndexing;
-		bool shaderClipDistance;
-		bool shaderCullDistance;
-		bool shaderFloat64;
-		bool shaderInt64;
-		bool shaderInt16;
-		bool shaderResourceResidency;
-		bool shaderResourceMinLod;
-		bool sparseBinding;
-		bool sparseResidencyBuffer;
-		bool sparseResidencyImage2D;
-		bool sparseResidencyImage3D;
-		bool sparseResidency2Samples;
-		bool sparseResidency4Samples;
-		bool sparseResidency8Samples;
-		bool sparseResidency16Samples;
-		bool sparseResidencyAliased;
-		bool variableMultisampleRate;
-		bool inheritedQueries;
+		bool robustBufferAccess : 1 = false;
+		bool fullDrawIndexUint32 : 1 = false;
+		bool imageCubeArray : 1 = false;
+		bool independentBlend : 1 = false;
+		bool geometryShader : 1 = false;
+		bool tessellationShader : 1 = false;
+		bool sampleRateShading : 1 = false;
+		bool dualSrcBlend : 1 = false;
+		bool logicOp : 1 = false;
+		bool multiDrawIndirect : 1 = false;
+		bool drawIndirectFirstInstance : 1 = false;
+		bool depthClamp : 1 = false;
+		bool depthBiasClamp : 1 = false;
+		bool fillModeNonSolid : 1 = false;
+		bool depthBounds : 1 = false;
+		bool wideLines : 1 = false;
+		bool largePoints : 1 = false;
+		bool alphaToOne : 1 = false;
+		bool multiViewport : 1 = false;
+		bool samplerAnisotropy : 1 = false;
+		bool textureCompressionETC2 : 1 = false;
+		bool textureCompressionASTC_LDR : 1 = false;
+		bool textureCompressionBC : 1 = false;
+		bool occlusionQueryPrecise : 1 = false;
+		bool pipelineStatisticsQuery : 1 = false;
+		bool vertexPipelineStoresAndAtomics : 1 = false;
+		bool fragmentStoresAndAtomics : 1 = false;
+		bool shaderTessellationAndGeometryPointSize : 1 = false;
+		bool shaderImageGatherExtended : 1 = false;
+		bool shaderStorageImageExtendedFormats : 1 = false;
+		bool shaderStorageImageMultisample : 1 = false;
+		bool shaderStorageImageReadWithoutFormat : 1 = false;
+		bool shaderStorageImageWriteWithoutFormat : 1 = false;
+		bool shaderUniformBufferArrayDynamicIndexing : 1 = false;
+		bool shaderSampledImageArrayDynamicIndexing : 1 = false;
+		bool shaderStorageBufferArrayDynamicIndexing : 1 = false;
+		bool shaderStorageImageArrayDynamicIndexing : 1 = false;
+		bool shaderClipDistance : 1 = false;
+		bool shaderCullDistance : 1 = false;
+		bool shaderFloat64 : 1 = false;
+		bool shaderInt64 : 1 = false;
+		bool shaderInt16 : 1 = false;
+		bool shaderResourceResidency : 1 = false;
+		bool shaderResourceMinLod : 1 = false;
+		bool sparseBinding : 1 = false;
+		bool sparseResidencyBuffer : 1 = false;
+		bool sparseResidencyImage2D : 1 = false;
+		bool sparseResidencyImage3D : 1 = false;
+		bool sparseResidency2Samples : 1 = false;
+		bool sparseResidency4Samples : 1 = false;
+		bool sparseResidency8Samples : 1 = false;
+		bool sparseResidency16Samples : 1 = false;
+		bool sparseResidencyAliased : 1 = false;
+		bool variableMultisampleRate : 1 = false;
+		bool inheritedQueries : 1 = false;
 	};
 
 	enum struct physical_device_type : rsl::uint8
@@ -249,9 +250,15 @@ namespace vk
 
 	struct physical_device_description
 	{
-		physical_device_type deviceType = physical_device_type::Other;
+		rsl::size_type deviceTypeImportance[5] = {
+            0ull, // Other
+			100ull,  // Integrated
+			1000ull, // Discrete
+			0ull,    // Virtual
+			0ull,    // CPU
+        };
 		semver::version apiVersion = semver::version(0,0,0);
-		semver::version driverVersion = semver::version(0, 0, 0);
+		physical_device_features requiredFeatures;
 	};
 
 	enum struct queue_feature_flags : rsl::uint32
@@ -337,7 +344,7 @@ namespace vk
 
 		bool initialize(std::span<rsl::cstring> extensions);
 
-        bool in_use() const;
+        bool in_use() const noexcept;
 
 		render_device create_render_device(std::span<const queue_description> queueDesciptions);
 		void release_render_device();
@@ -353,6 +360,8 @@ namespace vk
 	{
 	public:
 		operator bool() const noexcept;
+
+        physical_device get_physical_device() const noexcept;
 
 		rythe_always_inline native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
 
