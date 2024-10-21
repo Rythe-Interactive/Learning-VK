@@ -35,26 +35,6 @@ namespace vk
 		std::span<rsl::cstring> extensions = {}
 	);
 
-	class physical_device;
-
-	class instance
-	{
-	public:
-		operator bool() const noexcept;
-
-		std::span<physical_device> get_physical_devices(bool forceRefresh = false);
-
-		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
-
-	private:
-		native_instance m_nativeInstance = invalid_native_instance;
-
-		friend instance create_instance(
-			const application_info& applicationInfo, const semver::version& apiVersion,
-			std::span<rsl::cstring> extensions
-		);
-	};
-
 	struct physical_device_features
 	{
 		bool robustBufferAccess;
@@ -267,6 +247,13 @@ namespace vk
 		physical_device_sparse_properties sparseProperties;
 	};
 
+	struct physical_device_description
+	{
+		physical_device_type deviceType = physical_device_type::Other;
+		semver::version apiVersion = semver::version(0,0,0);
+		semver::version driverVersion = semver::version(0, 0, 0);
+	};
+
 	enum struct queue_feature_flags : rsl::uint32
 	{
 		Graphics = 0x00000001,
@@ -307,9 +294,34 @@ namespace vk
 		rsl::size_type imageTransferGranularityImportance = 1ull;
 	};
 
+	class physical_device;
 	class render_device;
 
-    DECLARE_OPAQUE_HANDLE(native_physical_device);
+	class instance
+	{
+	public:
+		operator bool() const noexcept;
+
+		std::span<physical_device> create_physical_devices(bool forceRefresh = false);
+		void release_unused_physical_devices();
+		void force_release_all_physical_devices();
+
+		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
+
+		render_device auto_select_and_create_device(
+			const physical_device_description& physicalDeviceDescription, std::span<const queue_description> queueDesciptions
+		);
+
+	private:
+		native_instance m_nativeInstance = invalid_native_instance;
+
+		friend instance create_instance(
+			const application_info& applicationInfo, const semver::version& apiVersion,
+			std::span<rsl::cstring> extensions
+		);
+	};
+
+	DECLARE_OPAQUE_HANDLE(native_physical_device);
 
 	class physical_device
 	{
@@ -325,14 +337,17 @@ namespace vk
 
 		bool initialize(std::span<rsl::cstring> extensions);
 
+        bool in_use() const;
+
 		render_device create_render_device(std::span<const queue_description> queueDesciptions);
+		void release_render_device();
 
 	private:
 		native_physical_device m_nativePhysicalDevice = invalid_native_physical_device;
 		friend class instance;
 	};
 
-    DECLARE_OPAQUE_HANDLE(native_render_device);
+	DECLARE_OPAQUE_HANDLE(native_render_device);
 
 	class render_device
 	{
@@ -341,7 +356,7 @@ namespace vk
 
 		rythe_always_inline native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
 
-    private:
+	private:
 		native_render_device m_nativeRenderDevice = invalid_native_render_device;
 		friend class physical_device;
 	};

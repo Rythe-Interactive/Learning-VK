@@ -166,6 +166,7 @@ namespace vk
 	{
 		using native_type = native_instance_vk;
 		using handle_type = native_instance;
+		constexpr static handle_type invalid_handle = invalid_native_instance;
 	};
 
 	template <>
@@ -173,17 +174,84 @@ namespace vk
 	{
 		using api_type = vk::instance;
 		using handle_type = native_instance;
+		constexpr static handle_type invalid_handle = invalid_native_instance;
+	};
+
+	class native_physical_device_vk
+	{
+	public:
+		bool load_functions(std::span<rsl::cstring> extensions);
+
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
+	[[maybe_unused]] PFN_##name name = nullptr;
+#include "impl/list_of_vulkan_functions.inl"
+
+		render_device renderDevice;
+
+		bool featuresLoaded = false;
+		physical_device_features features;
+		bool propertiesLoaded = false;
+		physical_device_properties properties;
+		std::vector<extension_properties> availableExtensions;
+		std::vector<queue_family_properties> availableQueueFamilies;
+
+		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	};
+
+	template <>
+	struct native_handle_traits<physical_device>
+	{
+		using native_type = native_physical_device_vk;
+		using handle_type = native_physical_device;
+		constexpr static handle_type invalid_handle = invalid_native_physical_device;
+	};
+
+	template <>
+	struct native_handle_traits<native_physical_device_vk>
+	{
+		using api_type = physical_device;
+		using handle_type = native_physical_device;
+		constexpr static handle_type invalid_handle = invalid_native_physical_device;
+	};
+
+	class native_render_device_vk
+	{
+	public:
+		VkDevice device = VK_NULL_HANDLE;
+	};
+
+	template <>
+	struct native_handle_traits<render_device>
+	{
+		using native_type = native_render_device_vk;
+		using handle_type = native_render_device;
+		constexpr static handle_type invalid_handle = invalid_native_render_device;
+	};
+
+	template <>
+	struct native_handle_traits<native_render_device_vk>
+	{
+		using api_type = render_device;
+		using handle_type = native_render_device;
+		constexpr static handle_type invalid_handle = invalid_native_render_device;
 	};
 
 	namespace
 	{
 		template <typename T>
-		rythe_always_inline auto get_native_ptr(const T& inst)
+		rythe_always_inline typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
 		{
 			using native_type = typename native_handle_traits<T>::native_type;
 			using handle_type = typename native_handle_traits<T>::handle_type;
 
 			handle_type handle = inst.get_native_handle();
+
+			if (handle == native_handle_traits<T>::invalid_handle)
+			{
+				return nullptr;
+			}
+
 			native_type* ptr = nullptr;
 			memcpy(&ptr, &handle, sizeof(rsl::ptr_type));
 
@@ -284,46 +352,13 @@ namespace vk
 		return "unknown";
 	}
 
-	class native_physical_device_vk
-	{
-	public:
-		bool load_functions(std::span<rsl::cstring> extensions);
-
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
-	[[maybe_unused]] PFN_##name name = nullptr;
-#include "impl/list_of_vulkan_functions.inl"
-
-		bool featuresLoaded = false;
-		physical_device_features features;
-		bool propertiesLoaded = false;
-		physical_device_properties properties;
-		std::vector<extension_properties> availableExtensions;
-		std::vector<queue_family_properties> availableQueueFamilies;
-
-		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-	};
-
-	template <>
-	struct native_handle_traits<physical_device>
-	{
-		using native_type = native_physical_device_vk;
-		using handle_type = native_physical_device;
-	};
-
-	template <>
-	struct native_handle_traits<native_physical_device_vk>
-	{
-		using api_type = physical_device;
-		using handle_type = native_physical_device;
-	};
-
 	instance::operator bool() const noexcept
 	{
-		return get_native_ptr(*this)->instance != VK_NULL_HANDLE;
+		auto ptr = get_native_ptr(*this);
+		return ptr != nullptr && ptr->instance != VK_NULL_HANDLE;
 	}
 
-	std::span<physical_device> instance::get_physical_devices(bool forceRefresh)
+	std::span<physical_device> instance::create_physical_devices(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
 
@@ -347,7 +382,7 @@ namespace vk
 				return {};
 			}
 
-			impl->physicalDevices.clear();
+			force_release_all_physical_devices();
 			impl->physicalDevices.reserve(deviceCount);
 			for (auto& pd : physicalDevicesBuffer)
 			{
@@ -365,6 +400,54 @@ namespace vk
 		}
 
 		return impl->physicalDevices;
+	}
+
+	void instance::release_unused_physical_devices()
+	{
+		auto* impl = get_native_ptr(*this);
+
+        std::vector<physical_device> newDeviceList;
+
+		for (auto& device : impl->physicalDevices)
+		{
+			auto ptr = get_native_ptr(device); 
+			if (ptr != nullptr)
+			{
+                if (device.in_use())
+                {
+					newDeviceList.push_back(device);
+                }
+				else
+				{
+					delete ptr;
+				}
+			}
+		}
+
+		impl->physicalDevices = std::move(newDeviceList);
+	}
+
+	void instance::force_release_all_physical_devices()
+	{
+		auto* impl = get_native_ptr(*this);
+
+		for (auto& device : impl->physicalDevices)
+		{
+			if (auto ptr = get_native_ptr(device); ptr != nullptr)
+			{
+				delete ptr;
+			}
+		}
+
+        impl->physicalDevices.clear();
+	}
+
+	render_device instance::auto_select_and_create_device(
+		const physical_device_description& physicalDeviceDescription,
+		std::span<const queue_description> queueDesciptions
+	)
+	{
+		return render_device();
 	}
 
 	bool native_instance_vk::load_functions([[maybe_unused]] std::span<const char*> extensions)
@@ -743,7 +826,8 @@ namespace vk
 
 	physical_device::operator bool() const noexcept
 	{
-		return get_native_ptr(*this)->physicalDevice != VK_NULL_HANDLE;
+		auto ptr = get_native_ptr(*this);
+		return ptr != nullptr && ptr->physicalDevice != VK_NULL_HANDLE;
 	}
 
 	const physical_device_properties& physical_device::get_properties(bool forceRefresh)
@@ -775,9 +859,16 @@ namespace vk
 		return get_native_ptr(*this)->load_functions(extensions);
 	}
 
+	bool physical_device::in_use() const
+	{
+		return get_native_ptr(*this)->renderDevice;
+	}
+
 	render_device
 	physical_device::create_render_device([[maybe_unused]] std::span<const queue_description> queueDesciptions)
 	{
+		auto* impl = get_native_ptr(*this);
+
 		struct queue_construction_info
 		{
 			rsl::size_type familyIndex = -1ull;
@@ -794,7 +885,7 @@ namespace vk
 			queueConstructionInfos[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
 		}
 
-        auto queueFamilies = get_available_queue_families();
+		auto queueFamilies = get_available_queue_families();
 
 		rsl::size_type familyIndex = 0;
 		for (auto& queueFamily : queueFamilies)
@@ -841,18 +932,18 @@ namespace vk
 			familyIndex++;
 		}
 
-        std::cout << "selected queues:\n";
+		std::cout << "selected queues:\n";
 
-        rsl::size_type queueIndex = 0;
+		rsl::size_type queueIndex = 0;
 		for (auto& [familyIndex, score, priority] : queueConstructionInfos)
 		{
 			std::cout << "\t" << queueIndex << ":\n";
 
-            if (familyIndex >= queueFamilies.size())
+			if (familyIndex >= queueFamilies.size())
 			{
 				std::cout << "\t\tNOT FOUND\n";
 				continue;
-            }
+			}
 
 			auto& queueFamily = queueFamilies[familyIndex];
 
@@ -887,7 +978,19 @@ namespace vk
 			queueIndex++;
 		}
 
-		return render_device();
+		return impl->renderDevice;
+	}
+
+	void physical_device::release_render_device()
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (auto ptr = get_native_ptr(impl->renderDevice); ptr != nullptr)
+		{
+			delete ptr;
+
+			impl->renderDevice.m_nativeRenderDevice = invalid_native_render_device;
+		}
 	}
 
 	bool native_physical_device_vk::load_functions([[maybe_unused]] std::span<const char*> extensions)
@@ -895,29 +998,10 @@ namespace vk
 		return false;
 	}
 
-	class native_render_device_vk
-	{
-	public:
-		VkDevice device = VK_NULL_HANDLE;
-	};
-
-	template <>
-	struct native_handle_traits<render_device>
-	{
-		using native_type = native_render_device_vk;
-		using handle_type = native_render_device;
-	};
-
-	template <>
-	struct native_handle_traits<native_render_device_vk>
-	{
-		using api_type = render_device;
-		using handle_type = native_render_device;
-	};
-
 	render_device::operator bool() const noexcept
 	{
-		return get_native_ptr(*this)->device != VK_NULL_HANDLE;
+		auto ptr = get_native_ptr(*this);
+		return ptr != nullptr && ptr->device != VK_NULL_HANDLE;
 	}
 
 } // namespace vk
