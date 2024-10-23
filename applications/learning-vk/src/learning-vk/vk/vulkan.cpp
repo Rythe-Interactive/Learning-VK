@@ -1,5 +1,7 @@
 #include "vulkan.hpp"
 
+#include <bit>
+
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
@@ -75,7 +77,7 @@ namespace vk
 	}
 
 #define GLOBAL_LEVEL_VULKAN_FUNCTION(name)                                                                             \
-	name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(nullptr, #name));                                        \
+	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(nullptr, #name));                                           \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load global-level Vulkan function \"" #name "\"\n";                                    \
@@ -180,11 +182,10 @@ namespace vk
 	class native_physical_device_vk
 	{
 	public:
-		bool load_functions(std::span<rsl::cstring> extensions);
-
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
 	[[maybe_unused]] PFN_##name name = nullptr;
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #include "impl/list_of_vulkan_functions.inl"
 
 		render_device renderDevice;
@@ -218,6 +219,13 @@ namespace vk
 	class native_render_device_vk
 	{
 	public:
+		bool load_functions(std::span<rsl::cstring> extensions);
+
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
+#define DEVICE_LEVEL_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
+#define DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name = nullptr;
+#include "impl/list_of_vulkan_functions.inl"
+
 		physical_device physicalDevice;
 
 		VkDevice device = VK_NULL_HANDLE;
@@ -244,32 +252,13 @@ namespace vk
 		template <typename T>
 		rythe_always_inline typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
 		{
-			using native_type = typename native_handle_traits<T>::native_type;
-			using handle_type = typename native_handle_traits<T>::handle_type;
-
-			handle_type handle = inst.get_native_handle();
-
-			if (handle == native_handle_traits<T>::invalid_handle)
-			{
-				return nullptr;
-			}
-
-			native_type* ptr = nullptr;
-			memcpy(&ptr, &handle, sizeof(rsl::ptr_type));
-
-			return ptr;
+			return std::bit_cast<typename native_handle_traits<T>::native_type*>(inst.get_native_handle());
 		}
 
 		template <typename T>
 		rythe_always_inline auto create_native_handle(T* inst)
 		{
-			using handle_type = typename native_handle_traits<T>::handle_type;
-
-			T* ptr = inst;
-			handle_type handle = handle_type::invalid;
-			memcpy(&handle, &ptr, sizeof(rsl::ptr_type));
-
-			return handle;
+			return std::bit_cast<typename native_handle_traits<T>::handle_type>(inst);
 		}
 	} // namespace
 
@@ -309,17 +298,19 @@ namespace vk
 			.ppEnabledExtensionNames = extensions.data(),
 		};
 
-		vk::instance instance;
-		native_instance_vk* nativeInstance = new native_instance_vk();
-		instance.m_nativeInstance = create_native_handle(nativeInstance);
+		VkInstance vkInstance;
+		VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
 
-		VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &nativeInstance->instance);
-
-		if (result != VK_SUCCESS || !instance)
+		if (result != VK_SUCCESS || vkInstance == VK_NULL_HANDLE)
 		{
 			std::cout << "Failed to create Vulkan Instance\n";
 			return {};
 		}
+
+		vk::instance instance;
+		native_instance_vk* nativeInstance = new native_instance_vk();
+		nativeInstance->instance = vkInstance;
+		instance.m_nativeInstance = create_native_handle(nativeInstance);
 
 		if (!nativeInstance->load_functions(extensions))
 		{
@@ -360,6 +351,22 @@ namespace vk
 		return ptr != nullptr && ptr->instance != VK_NULL_HANDLE;
 	}
 
+	void instance::release()
+	{
+		auto impl = get_native_ptr(*this);
+		if (!impl)
+		{
+			return;
+		}
+
+		release_physical_devices();
+
+		impl->vkDestroyInstance(impl->instance, nullptr);
+
+		m_nativeInstance = invalid_native_instance;
+		delete impl;
+	}
+
 	std::span<physical_device> instance::create_physical_devices(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
@@ -384,7 +391,7 @@ namespace vk
 				return {};
 			}
 
-			force_release_all_physical_devices();
+			release_physical_devices();
 			impl->physicalDevices.reserve(deviceCount);
 			for (auto& pd : physicalDevicesBuffer)
 			{
@@ -397,6 +404,7 @@ namespace vk
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl->name;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
 	nativePhysicalDevice->name = impl->name;
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl->name;
 #include "impl/list_of_vulkan_functions.inl"
 			}
 		}
@@ -404,49 +412,18 @@ namespace vk
 		return impl->physicalDevices;
 	}
 
-	void instance::release_unused_physical_devices()
+	void instance::release_physical_devices()
 	{
 		auto* impl = get_native_ptr(*this);
 
-		std::vector<physical_device> newDeviceList;
-
-		for (auto& device : impl->physicalDevices)
-		{
-			auto ptr = get_native_ptr(device);
-			if (ptr != nullptr)
-			{
-				if (device.in_use())
-				{
-					newDeviceList.push_back(device);
-				}
-				else
-				{
-					delete ptr;
-				}
-			}
-		}
-
-		impl->physicalDevices = std::move(newDeviceList);
-	}
-
-	void instance::force_release_all_physical_devices()
-	{
-		auto* impl = get_native_ptr(*this);
-
-		for (auto& device : impl->physicalDevices)
-		{
-			if (auto ptr = get_native_ptr(device); ptr != nullptr)
-			{
-				delete ptr;
-			}
-		}
+		for (auto& device : impl->physicalDevices) { device.release(); }
 
 		impl->physicalDevices.clear();
 	}
 
 	render_device instance::auto_select_and_create_device(
 		const physical_device_description& physicalDeviceDescription,
-		std::span<const queue_description> queueDesciptions
+		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
 	)
 	{
 		auto physicalDevices = create_physical_devices();
@@ -472,7 +449,7 @@ namespace vk
 		continue;                                                                                                      \
 	}
 
-            CHECK_FEATURE(robustBufferAccess);
+			CHECK_FEATURE(robustBufferAccess);
 			CHECK_FEATURE(fullDrawIndexUint32);
 			CHECK_FEATURE(imageCubeArray);
 			CHECK_FEATURE(independentBlend);
@@ -530,6 +507,14 @@ namespace vk
 
 #undef CHECK_FEATURE
 
+			for (auto& extensionName : extensions)
+			{
+				if (!device.is_extension_available(extensionName))
+				{
+					continue;
+				}
+			}
+
 			rsl::size_type deviceScore = 1;
 
 			deviceScore +=
@@ -549,13 +534,18 @@ namespace vk
 			return render_device();
 		}
 
-		return physicalDevices[selectedDevice].create_render_device(queueDesciptions);
+		auto result =
+			physicalDevices[selectedDevice].create_render_device_no_extension_check(queueDesciptions, extensions);
+
+		release_physical_devices();
+
+		return result;
 	}
 
 	bool native_instance_vk::load_functions([[maybe_unused]] std::span<const char*> extensions)
 	{
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
-	name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                       \
+	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -567,7 +557,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                               \
+			name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                  \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -578,7 +568,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name)                                                           \
-	name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                       \
+	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -590,7 +580,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = reinterpret_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                               \
+			name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                  \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -598,6 +588,14 @@ namespace vk
 			}                                                                                                          \
 			break;                                                                                                     \
 		}                                                                                                              \
+	}
+
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name)                                                                    \
+	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
+	if (!name)                                                                                                         \
+	{                                                                                                                  \
+		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
+		return false;                                                                                                  \
 	}
 
 #include "impl/list_of_vulkan_functions.inl"
@@ -645,6 +643,19 @@ namespace vk
 		}
 
 		return impl->availableExtensions;
+	}
+
+	bool physical_device::is_extension_available(std::string_view extensionName)
+	{
+		for (auto& extension : get_available_extensions())
+		{
+			if (extension.name == extensionName)
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	std::span<const queue_family_properties> physical_device::get_available_queue_families(bool forceRefresh)
@@ -932,6 +943,19 @@ namespace vk
 		return ptr != nullptr && ptr->physicalDevice != VK_NULL_HANDLE;
 	}
 
+	void physical_device::release()
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (!impl)
+		{
+			return;
+		}
+
+		m_nativePhysicalDevice = invalid_native_physical_device;
+		delete impl;
+	}
+
 	const physical_device_properties& physical_device::get_properties(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
@@ -956,18 +980,38 @@ namespace vk
 		return impl->properties;
 	}
 
-	bool physical_device::initialize(std::span<const char*> extensions)
-	{
-		return get_native_ptr(*this)->load_functions(extensions);
-	}
-
 	bool physical_device::in_use() const noexcept
 	{
 		return get_native_ptr(*this)->renderDevice;
 	}
 
-	render_device
-	physical_device::create_render_device([[maybe_unused]] std::span<const queue_description> queueDesciptions)
+	render_device physical_device::create_render_device(
+		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
+	)
+	{
+		for (auto& extensionName : extensions)
+		{
+			if (!is_extension_available(extensionName))
+			{
+				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
+				return {};
+			}
+		}
+
+		return create_render_device_no_extension_check(queueDesciptions, extensions);
+	}
+
+	static physical_device copy_physical_device(physical_device src)
+	{
+		physical_device copy;
+		copy.m_nativePhysicalDevice = create_native_handle(new native_physical_device_vk(*get_native_ptr(src)));
+
+		return copy;
+	}
+
+	render_device physical_device::create_render_device_no_extension_check(
+		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
+	)
 	{
 		auto* impl = get_native_ptr(*this);
 
@@ -989,119 +1033,132 @@ namespace vk
 
 		auto queueFamilies = get_available_queue_families();
 
-		rsl::size_type familyIndex = 0;
-		for (auto& queueFamily : queueFamilies)
 		{
-			rsl::size_type queueIndex = 0;
-			for (auto& queueDesciption : queueDesciptions)
+			rsl::size_type familyIndex = 0;
+			for (auto& queueFamily : queueFamilies)
 			{
-				auto& queueInfo = queueConstructionInfos[queueIndex];
-
-				if (queueDesciption.queueFamilyIndexOverride != -1ull ||
-					!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
-					queueFamily.queueCount == 0)
+				rsl::size_type queueIndex = 0;
+				for (auto& queueDesciption : queueDesciptions)
 				{
+					auto& queueInfo = queueConstructionInfos[queueIndex];
+
+					if (queueDesciption.queueFamilyIndexOverride != -1ull ||
+						!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
+						queueFamily.queueCount == 0)
+					{
+						queueIndex++;
+						continue;
+					}
+
+					rsl::size_type score = 1;
+
+					score += queueFamily.queueCount * queueDesciption.queueCountImportance;
+					score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
+
+					if (queueDesciption.imageTransferGranularityImportance != 0ull)
+					{
+						rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
+
+						score += maxScore - rsl::math::min(
+												maxScore, ((queueFamily.minImageTransferGranularity.x +
+															queueFamily.minImageTransferGranularity.y +
+															queueFamily.minImageTransferGranularity.z) /
+														   3u) *
+															  queueDesciption.imageTransferGranularityImportance
+											);
+					}
+
+					if (score > queueInfo.score)
+					{
+						queueInfo.familyIndex = familyIndex;
+						queueInfo.score = score;
+					}
+
 					queueIndex++;
-					continue;
 				}
+				familyIndex++;
+			}
+		}
 
-				rsl::size_type score = 1;
-
-				score += queueFamily.queueCount * queueDesciption.queueCountImportance;
-				score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
-
-				if (queueDesciption.imageTransferGranularityImportance != 0ull)
+		{
+			bool failed = false;
+			rsl::size_type queueIndex = 0;
+			for (auto& [familyIndex, score, priority] : queueConstructionInfos)
+			{
+				if (familyIndex >= queueFamilies.size())
 				{
-					rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
-
-					score += maxScore - rsl::math::min(
-											maxScore, ((queueFamily.minImageTransferGranularity.x +
-														queueFamily.minImageTransferGranularity.y +
-														queueFamily.minImageTransferGranularity.z) /
-													   3u) *
-														  queueDesciption.imageTransferGranularityImportance
-										);
+					std::cout << "No compatible queue family found for queue " << queueIndex << '\n';
+					failed = true;
 				}
-
-				if (score > queueInfo.score)
-				{
-					queueInfo.familyIndex = familyIndex;
-					queueInfo.score = score;
-				}
-
 				queueIndex++;
 			}
-			familyIndex++;
+
+			if (failed)
+			{
+				return {};
+			}
 		}
 
-		std::cout << "selected queues:\n";
+		std::vector<std::vector<rsl::float32>> priorities;
+		priorities.resize(queueFamilies.size());
 
-		rsl::size_type queueIndex = 0;
 		for (auto& [familyIndex, score, priority] : queueConstructionInfos)
 		{
-			std::cout << "\t" << queueIndex << ":\n";
-
-			if (familyIndex >= queueFamilies.size())
-			{
-				std::cout << "\t\tNOT FOUND\n";
-				continue;
-			}
-
-			auto& queueFamily = queueFamilies[familyIndex];
-
-			std::cout << "\t\tscore: " << score << '\n';
-			std::cout << "\t\tpriority: " << to_string(priority) << '\n';
-			std::cout << "\t\tallowed operations:\n";
-
-#define PRINT_FEATURE(name)                                                                                            \
-	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::name))                                \
-	{                                                                                                                  \
-		std::cout << "\t\t\t\t" #name "\n";                                                                            \
-	}
-
-			PRINT_FEATURE(Graphics);
-			PRINT_FEATURE(Compute);
-			PRINT_FEATURE(Transfer);
-			PRINT_FEATURE(SparseBinding);
-			PRINT_FEATURE(Protected);
-			PRINT_FEATURE(VideoDecode);
-			PRINT_FEATURE(VideoEncode);
-			PRINT_FEATURE(OpticalFlowNV);
-
-#undef PRINT_FEATURE
-
-			std::cout << "\t\tallowed amount: " << queueFamily.queueCount << '\n';
-			std::cout << "\t\ttimestamp valid bits: " << queueFamily.timestampValidBits << '\n';
-			std::cout << "\t\tminimum image transfer resolution:\n";
-			std::cout << "\t\t\twidth: " << queueFamily.minImageTransferGranularity.x << '\n';
-			std::cout << "\t\t\theight: " << queueFamily.minImageTransferGranularity.y << '\n';
-			std::cout << "\t\t\tdepth: " << queueFamily.minImageTransferGranularity.z << '\n';
-
-			queueIndex++;
+			priorities[familyIndex].push_back(priority == queue_priority::Normal ? 0.5f : 1.f);
 		}
 
-        auto* renderDevicePtr = new native_render_device_vk();
-		renderDevicePtr->physicalDevice = *this;
-
-        impl->renderDevice.m_nativeRenderDevice = create_native_handle(renderDevicePtr);
-		return impl->renderDevice;
-	}
-
-	void physical_device::release_render_device()
-	{
-		auto* impl = get_native_ptr(*this);
-
-		if (auto ptr = get_native_ptr(impl->renderDevice); ptr != nullptr)
+		std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+		queueCreateInfos.reserve(queueConstructionInfos.size());
+		for (rsl::size_type i = 0; i < priorities.size(); i++)
 		{
-			delete ptr;
-
-			impl->renderDevice.m_nativeRenderDevice = invalid_native_render_device;
+			if (!priorities[i].empty())
+			{
+				queueCreateInfos.push_back(VkDeviceQueueCreateInfo{
+					.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+					.pNext = nullptr,
+					.flags = 0,
+					.queueFamilyIndex = static_cast<rsl::uint32>(i),
+					.queueCount = static_cast<rsl::uint32>(priorities[i].size()),
+					.pQueuePriorities = priorities[i].data(),
+				});
+			}
 		}
-	}
 
-	bool native_physical_device_vk::load_functions([[maybe_unused]] std::span<const char*> extensions)
-	{
-		return false;
+		VkPhysicalDeviceFeatures features;
+		impl->vkGetPhysicalDeviceFeatures(impl->physicalDevice, &features);
+
+		VkDeviceCreateInfo deviceCreateInfo{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.queueCreateInfoCount = static_cast<rsl::uint32>(queueCreateInfos.size()),
+			.pQueueCreateInfos = queueCreateInfos.data(),
+			.enabledLayerCount = 0,
+			.ppEnabledLayerNames = nullptr,
+			.enabledExtensionCount = static_cast<rsl::uint32>(extensions.size()),
+			.ppEnabledExtensionNames = extensions.data(),
+			.pEnabledFeatures = &features,
+		};
+
+		VkDevice device;
+		VkResult result = impl->vkCreateDevice(impl->physicalDevice, &deviceCreateInfo, nullptr, &device);
+
+		if (result != VK_SUCCESS || device == VK_NULL_HANDLE)
+		{
+			return {};
+		}
+
+		auto* renderDevicePtr = new native_render_device_vk();
+		renderDevicePtr->physicalDevice = copy_physical_device(*this);
+		renderDevicePtr->device = device;
+
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) renderDevicePtr->name = impl->name;
+#include "impl/list_of_vulkan_functions.inl"
+
+		renderDevicePtr->load_functions(extensions);
+
+		impl->renderDevice.m_nativeRenderDevice = create_native_handle(renderDevicePtr);
+		return impl->renderDevice;
 	}
 
 	render_device::operator bool() const noexcept
@@ -1110,15 +1167,62 @@ namespace vk
 		return ptr != nullptr && ptr->device != VK_NULL_HANDLE;
 	}
 
+	void render_device::release()
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (!impl)
+		{
+			return;
+		}
+
+		impl->vkDestroyDevice(impl->device, nullptr);
+
+		impl->physicalDevice.release();
+
+		m_nativeRenderDevice = invalid_native_render_device;
+		delete impl;
+	}
+
 	physical_device render_device::get_physical_device() const noexcept
 	{
 		auto ptr = get_native_ptr(*this);
-        if (!ptr)
-        {
+		if (!ptr)
+		{
 			return physical_device();
-        }
+		}
 
-        return ptr->physicalDevice;
+		return ptr->physicalDevice;
+	}
+
+	bool native_render_device_vk::load_functions(std::span<rsl::cstring> extensions)
+	{
+#define DEVICE_LEVEL_VULKAN_FUNCTION(name)                                                                             \
+	name = std::bit_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));                                              \
+	if (!name)                                                                                                         \
+	{                                                                                                                  \
+		std::cout << "Could not load device-level Vulkan function \"" #name "\"\n";                                    \
+		return false;                                                                                                  \
+	}
+
+#define DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                                   \
+	for (auto& enabledExtension : extensions)                                                                          \
+	{                                                                                                                  \
+		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
+		{                                                                                                              \
+			name = std::bit_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));                                      \
+			if (!name)                                                                                                 \
+			{                                                                                                          \
+				std::cout << "Could not load device-level Vulkan function \"" #name "\"\n";                            \
+				return false;                                                                                          \
+			}                                                                                                          \
+			break;                                                                                                     \
+		}                                                                                                              \
+	}
+
+#include "impl/list_of_vulkan_functions.inl"
+
+		return true;
 	}
 
 } // namespace vk

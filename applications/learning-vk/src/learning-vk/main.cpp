@@ -43,17 +43,11 @@ int wmain()
 		{
          .requiredFeatures = vk::queue_feature_flags::Transfer,
 		 },
-		{
-         .requiredFeatures = vk::queue_feature_flags::VideoDecode,
-		 },
-		{
-         .queueFamilyIndexOverride = 4,
-		 },
 	};
 
 	auto renderDevice = instance.auto_select_and_create_device(deviceDesc, queueDescs);
 
-	if (renderDevice.get_native_handle() == vk::invalid_native_render_device)
+	if (!renderDevice)
 	{
 		std::cout << "NO DEVICE FOUND\n";
 		return -1;
@@ -182,6 +176,10 @@ int wmain()
 			i++;
 		}
 	}
+
+    renderDevice.release();
+
+    instance.release();
 
 	std::cout << "Everything fine so far!\n";
 	return 0;

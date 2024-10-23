@@ -309,14 +309,16 @@ namespace vk
 	public:
 		operator bool() const noexcept;
 
+        void release();
+
 		std::span<physical_device> create_physical_devices(bool forceRefresh = false);
-		void release_unused_physical_devices();
-		void force_release_all_physical_devices();
+		void release_physical_devices();
 
 		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
 
 		render_device auto_select_and_create_device(
-			const physical_device_description& physicalDeviceDescription, std::span<const queue_description> queueDesciptions
+			const physical_device_description& physicalDeviceDescription,
+			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions = {}
 		);
 
 	private:
@@ -335,22 +337,29 @@ namespace vk
 	public:
 		operator bool() const noexcept;
 
+        void release();
+
 		const physical_device_properties& get_properties(bool forceRefresh = false);
 		const physical_device_features& get_features(bool forceRefresh = false);
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
+		bool is_extension_available(std::string_view extensionName);
 		std::span<const queue_family_properties> get_available_queue_families(bool forceRefresh = false);
 
 		rythe_always_inline native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
 
-		bool initialize(std::span<rsl::cstring> extensions);
-
         bool in_use() const noexcept;
 
-		render_device create_render_device(std::span<const queue_description> queueDesciptions);
-		void release_render_device();
+		render_device create_render_device(
+			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions = {}
+		);
 
 	private:
+		render_device create_render_device_no_extension_check(
+			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
+		);
+
 		native_physical_device m_nativePhysicalDevice = invalid_native_physical_device;
+		friend physical_device copy_physical_device(physical_device);
 		friend class instance;
 	};
 
@@ -360,6 +369,8 @@ namespace vk
 	{
 	public:
 		operator bool() const noexcept;
+
+        void release();
 
         physical_device get_physical_device() const noexcept;
 
