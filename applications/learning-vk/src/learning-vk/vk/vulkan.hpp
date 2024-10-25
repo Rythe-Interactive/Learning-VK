@@ -11,6 +11,8 @@ namespace vk
 {
 	bool init();
 
+    void shut_down();
+
 	struct extension_properties
 	{
 		std::string name;

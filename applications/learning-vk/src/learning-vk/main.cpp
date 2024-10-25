@@ -178,7 +178,6 @@ int wmain()
 		}
 	}
 
-
 	auto queues = renderDevice.get_queues();
 
 	for (auto& queue : queues)
@@ -189,15 +188,15 @@ int wmain()
 		std::cout << "\tpriority:" << vk::to_string(queue.get_priority()) << '\n';
 	}
 
-    auto graphicsQueue = queues[0];
-    auto computeQueue = queues[1];
-    auto transferQueue = queues[2];
+    [[maybe_unused]] auto graphicsQueue = queues[0];
+    [[maybe_unused]] auto computeQueue = queues[1];
+    [[maybe_unused]] auto transferQueue = queues[2];
 
-
-
-	renderDevice.release();
+    renderDevice.release();
 
 	instance.release();
+
+    vk::shut_down();
 
 	std::cout << "Everything fine so far!\n";
 	return 0;

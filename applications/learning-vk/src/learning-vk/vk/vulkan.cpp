@@ -91,6 +91,17 @@ namespace vk
 		return true;
 	}
 
+	void shut_down()
+	{
+		libraryIsInitialized = false;
+
+#define EXPORTED_VULKAN_FUNCTION(name) name = nullptr;
+#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) name = nullptr;
+#include "impl/list_of_vulkan_functions.inl"
+
+		vulkanLibrary.release();
+	}
+
 	std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh)
 	{
 		if (forceRefresh || availableInstanceExtensions.empty())
@@ -162,10 +173,10 @@ namespace vk
 		VkInstance instance = VK_NULL_HANDLE;
 	};
 
-    static void set_native_handle(instance& target, native_instance handle)
-    {
+	static void set_native_handle(instance& target, native_instance handle)
+	{
 		target.m_nativeInstance = handle;
-    }
+	}
 
 	template <>
 	struct native_handle_traits<vk::instance>
@@ -265,8 +276,8 @@ namespace vk
 	{
 		render_device renderDevice;
 
-        rsl::size_type queueIndex;
-        rsl::size_type familyIndex;
+		rsl::size_type queueIndex;
+		rsl::size_type familyIndex;
 		queue_priority priority;
 		VkQueue queue = VK_NULL_HANDLE;
 	};
@@ -473,9 +484,9 @@ namespace vk
 		impl->physicalDevices.clear();
 	}
 
-    namespace
+	namespace
 	{
-        physical_device copy_physical_device(physical_device src)
+		physical_device copy_physical_device(physical_device src)
 		{
 			physical_device copy;
 			set_native_handle(copy, create_native_handle(new native_physical_device_vk(*get_native_ptr(src))));
@@ -673,14 +684,14 @@ namespace vk
 					auto inputIndex = mapping.inputOrderIndex[queueIndex];
 					auto& queue = renderDevicePtr->queues[inputIndex];
 
-                    native_queue_vk* nativeQueue = new native_queue_vk();
+					native_queue_vk* nativeQueue = new native_queue_vk();
 					nativeQueue->queue = vkQueue;
 					nativeQueue->renderDevice = impl->renderDevice;
 					nativeQueue->queueIndex = inputIndex;
 					nativeQueue->familyIndex = info.queueFamilyIndex;
 					nativeQueue->priority = queueDesciptions[inputIndex].priority;
 
-                    set_native_handle(queue, create_native_handle(nativeQueue));
+					set_native_handle(queue, create_native_handle(nativeQueue));
 				}
 			}
 
@@ -689,7 +700,7 @@ namespace vk
 			set_native_handle(impl->renderDevice, create_native_handle(renderDevicePtr));
 			return impl->renderDevice;
 		}
-	}
+	} // namespace
 
 	render_device instance::auto_select_and_create_device(
 		const physical_device_description& physicalDeviceDescription,
@@ -1298,10 +1309,10 @@ namespace vk
 	{
 		auto* impl = get_native_ptr(*this);
 
-        if (impl)
-        {
+		if (impl)
+		{
 			return impl->queues;
-        }
+		}
 
 		return {};
 	}
@@ -1347,7 +1358,7 @@ namespace vk
 		return true;
 	}
 
-    rsl::size_type queue::get_index() const noexcept
+	rsl::size_type queue::get_index() const noexcept
 	{
 		auto* impl = get_native_ptr(*this);
 
@@ -1375,10 +1386,10 @@ namespace vk
 	{
 		auto* impl = get_native_ptr(*this);
 
-        if (impl)
-        {
+		if (impl)
+		{
 			return impl->priority;
-        }
+		}
 
 		return queue_priority::Normal;
 	}
