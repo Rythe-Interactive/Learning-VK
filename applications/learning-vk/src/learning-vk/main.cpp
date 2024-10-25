@@ -35,6 +35,7 @@ int wmain()
 
 	vk::queue_description queueDescs[] = {
 		{
+         .priority = vk::queue_priority::High,
          .requiredFeatures = vk::queue_feature_flags::Graphics,
 		 },
 		{
@@ -177,9 +178,26 @@ int wmain()
 		}
 	}
 
-    renderDevice.release();
 
-    instance.release();
+	auto queues = renderDevice.get_queues();
+
+	for (auto& queue : queues)
+	{
+		std::cout << "Queue:\n";
+		std::cout << "\tindex:" << queue.get_index() << '\n';
+		std::cout << "\tfamily index:" << queue.get_family_index() << '\n';
+		std::cout << "\tpriority:" << vk::to_string(queue.get_priority()) << '\n';
+	}
+
+    auto graphicsQueue = queues[0];
+    auto computeQueue = queues[1];
+    auto transferQueue = queues[2];
+
+
+
+	renderDevice.release();
+
+	instance.release();
 
 	std::cout << "Everything fine so far!\n";
 	return 0;

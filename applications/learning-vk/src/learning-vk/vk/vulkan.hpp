@@ -324,11 +324,8 @@ namespace vk
 	private:
 		native_instance m_nativeInstance = invalid_native_instance;
 
-		friend instance create_instance(
-			const application_info& applicationInfo, const semver::version& apiVersion,
-			std::span<rsl::cstring> extensions
-		);
-	};
+        friend void set_native_handle(instance&, native_instance);
+    };
 
 	DECLARE_OPAQUE_HANDLE(native_physical_device);
 
@@ -354,16 +351,14 @@ namespace vk
 		);
 
 	private:
-		render_device create_render_device_no_extension_check(
-			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
-		);
-
 		native_physical_device m_nativePhysicalDevice = invalid_native_physical_device;
-		friend physical_device copy_physical_device(physical_device);
-		friend class instance;
+
+		friend void set_native_handle(physical_device&, native_physical_device);
 	};
 
 	DECLARE_OPAQUE_HANDLE(native_render_device);
+
+	class queue;
 
 	class render_device
 	{
@@ -372,12 +367,29 @@ namespace vk
 
         void release();
 
+        std::span<queue> get_queues() noexcept;
         physical_device get_physical_device() const noexcept;
 
 		rythe_always_inline native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
 
 	private:
 		native_render_device m_nativeRenderDevice = invalid_native_render_device;
-		friend class physical_device;
+		friend void set_native_handle(render_device&, native_render_device);
+	};
+
+	DECLARE_OPAQUE_HANDLE(native_queue);
+
+	class queue
+	{
+	public:
+		rsl::size_type get_index() const noexcept;
+		rsl::size_type get_family_index() const noexcept;
+		queue_priority get_priority() const noexcept;
+
+        rythe_always_inline native_queue get_native_handle() const noexcept { return m_nativeQueue; }
+
+	private:
+		native_queue m_nativeQueue = invalid_native_queue;
+		friend void set_native_handle(queue&, native_queue);
 	};
 } // namespace vk
