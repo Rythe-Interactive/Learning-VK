@@ -7,20 +7,18 @@
 
 #if RYTHE_PLATFORM_WINDOWS
 	#define VK_USE_PLATFORM_WIN32_KHR
-	#define WIN32_LEAN_AND_MEAN
-	#define VC_EXTRALEAN
-	#define NOMINMAX
-	#include <windef.h>
-	#include <minwinbase.h>
 	#include <vulkan/vulkan_win32.h>
+	#define VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
 		#define VK_USE_PLATFORM_XCB_KHR
 		#include <vulkan/vulkan_xcb.h>
+		#define VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME VK_KHR_XCB_SURFACE_EXTENSION_NAME
 	#endif
 	#ifdef RYTHE_SURFACE_XLIB
 		#define VK_USE_PLATFORM_XLIB_KHR
 		#include <vulkan/vulkan_xlib.h>
+		#define VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME VK_KHR_XLIB_SURFACE_EXTENSION_NAME
 	#endif
 #endif
 
@@ -340,6 +338,7 @@ namespace vk
 	{
 		std::vector<rsl::cstring> enabledExtensions;
 		bool surfaceExtensionActive = false;
+		bool platformSurfaceExtensionActive = false;
 		for (auto& extensionName : extensions)
 		{
 			auto nameView = std::string_view(extensionName);
@@ -353,21 +352,40 @@ namespace vk
 				{
 					surfaceExtensionActive = true;
 				}
+				else if (nameView == VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME)
+				{
+					platformSurfaceExtensionActive = true;
+				}
 
 				enabledExtensions.push_back(extensionName);
 			}
 		}
 
-		if (!surfaceExtensionActive && _applicationInfo.windowHandle != invalid_native_window_handle)
+		if (_applicationInfo.windowHandle != invalid_native_window_handle)
 		{
-			surfaceExtensionActive = true;
-			enabledExtensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-		}
+			if (!surfaceExtensionActive)
+			{
+				enabledExtensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+			}
 
-		if (surfaceExtensionActive && _applicationInfo.windowHandle == invalid_native_window_handle)
+			if (!platformSurfaceExtensionActive)
+			{
+				enabledExtensions.push_back(VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME);
+			}
+		}
+		else
 		{
-			std::cout << "Surface extension is activated, but no window handle was provided.\n";
-			return {};
+			if (surfaceExtensionActive)
+			{
+				std::cout << "Surface extension is activated, but no window handle was provided.\n";
+				return {};
+			}
+
+			if (platformSurfaceExtensionActive)
+			{
+				std::cout << "Platform specific surface extension is activated, but no window handle was provided.\n";
+				return {};
+			}
 		}
 
 		VkApplicationInfo applicationInfo{
@@ -405,7 +423,7 @@ namespace vk
 		native_instance_vk* nativeInstance = new native_instance_vk();
 		nativeInstance->instance = vkInstance;
 
-		if (!nativeInstance->load_functions(extensions))
+		if (!nativeInstance->load_functions(enabledExtensions))
 		{
 			if (nativeInstance->vkDestroyInstance)
 			{
@@ -842,7 +860,7 @@ namespace vk
 		return false;                                                                                                  \
 	}
 
-#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSTION(name, extension)                                                \
+#define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                                 \
 	for (auto& enabledExtension : extensions)                                                                          \
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
@@ -988,34 +1006,39 @@ namespace vk
 			impl->availableQueueFamilies.clear();
 			impl->availableQueueFamilies.reserve(queueFamilyCount);
 
-			[[maybe_unused]] auto* nativeInstance = get_native_ptr(impl->instance);
+			auto* nativeInstance = get_native_ptr(impl->instance);
 
 			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
 			{
 				auto& queueFamily = queueFamiliesBuffer[queueFamilyIndex];
 
-				VkSurfaceKHR surface = VK_NULL_HANDLE;
+				VkBool32 supportsPresent = VK_FALSE;
+
+				if (nativeInstance->applicationInfo.windowHandle != invalid_native_window_handle)
+				{
+					VkSurfaceKHR surface = VK_NULL_HANDLE;
 
 #if RYTHE_PLATFORM_WINDOWS
-				VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
-					.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-				};
-				surfaceCreateInfo.hwnd = get_native_window(nativeInstance->applicationInfo.windowHandle);
-                if (nativeInstance->vkCreateWin32SurfaceKHR(
-                    nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
-                ) != VK_SUCCESS)
-                {
-					surface = VK_NULL_HANDLE;
-                }
+					VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
+						.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+					};
+					surfaceCreateInfo.hwnd = get_native_window(nativeInstance->applicationInfo.windowHandle);
+					if (nativeInstance->vkCreateWin32SurfaceKHR(
+							nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
+						) != VK_SUCCESS)
+					{
+						surface = VK_NULL_HANDLE;
+					}
 #endif
 
-				VkBool32 supportsPresent;
-				if (surface == VK_NULL_HANDLE || nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
-                    impl->physicalDevice, queueFamilyIndex, surface, &supportsPresent
-                ) != VK_SUCCESS)
-                {
-					supportsPresent = VK_FALSE;
-                }
+					if (surface == VK_NULL_HANDLE ||
+						nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
+							impl->physicalDevice, queueFamilyIndex, surface, &supportsPresent
+						) != VK_SUCCESS)
+					{
+						supportsPresent = VK_FALSE;
+					}
+				}
 
 				impl->availableQueueFamilies.push_back({
 					.features = map_vk_queue_features(queueFamily.queueFlags, supportsPresent == VK_TRUE),

@@ -7,6 +7,14 @@
 #include <semver/semver.hpp>
 #include <span>
 
+#if RYTHE_PLATFORM_WINDOWS
+	#define WIN32_LEAN_AND_MEAN
+	#define VC_EXTRALEAN
+	#define NOMINMAX
+	#include <windef.h>
+	#include <minwinbase.h>
+#endif
+
 namespace vk
 {
 	DECLARE_OPAQUE_HANDLE(native_window_handle);

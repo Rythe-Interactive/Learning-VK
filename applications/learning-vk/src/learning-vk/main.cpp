@@ -4,6 +4,8 @@
 
 #include "vk/vulkan.hpp"
 
+#include <Windows.h>
+
 int wmain()
 {
 	if (!vk::init())
@@ -23,7 +25,7 @@ int wmain()
 	vk::application_info applicationInfo{
 		.name = "Learning VK",
 		.version = {0, 0, 1},
-        .flags = vk::application_flags::presenting
+		.windowHandle = vk::create_window_handle_win32(GetConsoleWindow()),
 	};
 
 	vk::instance instance = vk::create_instance(applicationInfo);
@@ -44,6 +46,9 @@ int wmain()
 		 },
 		{
          .requiredFeatures = vk::queue_feature_flags::transfer,
+		 },
+		{
+         .requiredFeatures = vk::queue_feature_flags::present,
 		 },
 	};
 
@@ -151,10 +156,10 @@ int wmain()
 			std::cout << "\t\t" << i << ":\n";
 			std::cout << "\t\t\tallowed operations:\n";
 
-#define PRINT_FEATURE(feature, name)                                                                                            \
-	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::feature))                                \
+#define PRINT_FEATURE(feature, name)                                                                                   \
+	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::feature))                             \
 	{                                                                                                                  \
-		std::cout << "\t\t\t\t" name "\n";                                                                            \
+		std::cout << "\t\t\t\t" name "\n";                                                                             \
 	}
 
 			PRINT_FEATURE(graphics, "graphics");
@@ -165,6 +170,7 @@ int wmain()
 			PRINT_FEATURE(videoDecode, "video decode");
 			PRINT_FEATURE(videoEncode, "video encode");
 			PRINT_FEATURE(opticalFlowNV, "optical flow");
+			PRINT_FEATURE(present, "present");
 
 #undef PRINT_FEATURE
 
@@ -189,15 +195,15 @@ int wmain()
 		std::cout << "\tpriority: " << vk::to_string(queue.get_priority()) << '\n';
 	}
 
-    [[maybe_unused]] auto graphicsQueue = queues[0];
-    [[maybe_unused]] auto computeQueue = queues[1];
-    [[maybe_unused]] auto transferQueue = queues[2];
+	[[maybe_unused]] auto graphicsQueue = queues[0];
+	[[maybe_unused]] auto computeQueue = queues[1];
+	[[maybe_unused]] auto transferQueue = queues[2];
 
-    renderDevice.release();
+	renderDevice.release();
 
 	instance.release();
 
-    vk::shut_down();
+	vk::shut_down();
 
 	std::cout << "Everything fine so far!\n";
 	return 0;
