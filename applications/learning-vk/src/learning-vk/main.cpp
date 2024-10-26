@@ -35,14 +35,14 @@ int wmain()
 
 	vk::queue_description queueDescs[] = {
 		{
-         .priority = vk::queue_priority::High,
-         .requiredFeatures = vk::queue_feature_flags::Graphics,
+         .priority = vk::queue_priority::high,
+         .requiredFeatures = vk::queue_feature_flags::graphics,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::Compute,
+         .requiredFeatures = vk::queue_feature_flags::compute,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::Transfer,
+         .requiredFeatures = vk::queue_feature_flags::transfer,
 		 },
 	};
 
@@ -150,20 +150,20 @@ int wmain()
 			std::cout << "\t\t" << i << ":\n";
 			std::cout << "\t\t\tallowed operations:\n";
 
-#define PRINT_FEATURE(name)                                                                                            \
-	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::name))                                \
+#define PRINT_FEATURE(feature, name)                                                                                            \
+	if (rsl::enum_flags::has_flag(queueFamily.features, vk::queue_feature_flags::feature))                                \
 	{                                                                                                                  \
-		std::cout << "\t\t\t\t" #name "\n";                                                                            \
+		std::cout << "\t\t\t\t" name "\n";                                                                            \
 	}
 
-			PRINT_FEATURE(Graphics);
-			PRINT_FEATURE(Compute);
-			PRINT_FEATURE(Transfer);
-			PRINT_FEATURE(SparseBinding);
-			PRINT_FEATURE(Protected);
-			PRINT_FEATURE(VideoDecode);
-			PRINT_FEATURE(VideoEncode);
-			PRINT_FEATURE(OpticalFlowNV);
+			PRINT_FEATURE(graphics, "graphics");
+			PRINT_FEATURE(compute, "compute");
+			PRINT_FEATURE(transfer, "transfer");
+			PRINT_FEATURE(sparseBinding, "sparse binding");
+			PRINT_FEATURE(protectedMemory, "protected memory");
+			PRINT_FEATURE(videoDecode, "video decode");
+			PRINT_FEATURE(videoEncode, "video encode");
+			PRINT_FEATURE(opticalFlowNV, "optical flow");
 
 #undef PRINT_FEATURE
 
@@ -183,9 +183,9 @@ int wmain()
 	for (auto& queue : queues)
 	{
 		std::cout << "Queue:\n";
-		std::cout << "\tindex:" << queue.get_index() << '\n';
-		std::cout << "\tfamily index:" << queue.get_family_index() << '\n';
-		std::cout << "\tpriority:" << vk::to_string(queue.get_priority()) << '\n';
+		std::cout << "\tindex: " << queue.get_index() << '\n';
+		std::cout << "\tfamily index: " << queue.get_family_index() << '\n';
+		std::cout << "\tpriority: " << vk::to_string(queue.get_priority()) << '\n';
 	}
 
     [[maybe_unused]] auto graphicsQueue = queues[0];

@@ -387,10 +387,10 @@ namespace vk
 	{
 		switch (type)
 		{
-			case physical_device_type::Other: return "Other";
-			case physical_device_type::Integrated: return "Integrated GPU";
-			case physical_device_type::Discrete: return "Discrete GPU";
-			case physical_device_type::Virtual: return "Virtual GPU";
+			case physical_device_type::other: return "other";
+			case physical_device_type::integratedGPU: return "integrated GPU";
+			case physical_device_type::discreteGPU: return "discrete GPU";
+			case physical_device_type::virtualGPU: return "virtual GPU";
 			case physical_device_type::CPU: return "CPU";
 		}
 
@@ -401,8 +401,8 @@ namespace vk
 	{
 		switch (priority)
 		{
-			case queue_priority::Normal: return "Normal";
-			case queue_priority::High: return "High";
+			case queue_priority::normal: return "normal";
+			case queue_priority::high: return "high";
 		}
 
 		return "unknown";
@@ -598,7 +598,7 @@ namespace vk
 
 				queueMapping[familyIndex].inputOrderIndex.push_back(i);
 				queueMapping[familyIndex].priorities.push_back(
-					queueDesciptions[i].priority == queue_priority::Normal ? 0.5f : 1.f
+					queueDesciptions[i].priority == queue_priority::normal ? 0.5f : 1.f
 				);
 			}
 
@@ -1071,15 +1071,15 @@ namespace vk
 		{
 			switch (type)
 			{
-				case VK_PHYSICAL_DEVICE_TYPE_OTHER: return physical_device_type::Other;
-				case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return physical_device_type::Integrated;
-				case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return physical_device_type::Discrete;
-				case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return physical_device_type::Virtual;
+				case VK_PHYSICAL_DEVICE_TYPE_OTHER: return physical_device_type::other;
+				case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return physical_device_type::integratedGPU;
+				case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return physical_device_type::discreteGPU;
+				case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return physical_device_type::virtualGPU;
 				case VK_PHYSICAL_DEVICE_TYPE_CPU: return physical_device_type::CPU;
-				case VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM: return physical_device_type::Other;
+				case VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM: return physical_device_type::other;
 			}
 
-			return physical_device_type::Other;
+			return physical_device_type::other;
 		}
 
 		void map_vk_physical_device_limits(physical_device_limits& target, const VkPhysicalDeviceLimits& src)
@@ -1391,7 +1391,7 @@ namespace vk
 			return impl->priority;
 		}
 
-		return queue_priority::Normal;
+		return queue_priority::normal;
 	}
 
 } // namespace vk

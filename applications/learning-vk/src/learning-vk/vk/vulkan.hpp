@@ -99,10 +99,10 @@ namespace vk
 
 	enum struct physical_device_type : rsl::uint8
 	{
-		Other,
-		Integrated,
-		Discrete,
-		Virtual,
+		other,
+		integratedGPU,
+		discreteGPU,
+		virtualGPU,
 		CPU,
 	};
 
@@ -110,13 +110,13 @@ namespace vk
 
 	enum struct sample_count_flags : rsl::uint8
 	{
-		SC1Bit = 0x00000001,
-		SC2Bit = 0x00000002,
-		SC4Bit = 0x00000004,
-		SC8Bit = 0x00000008,
-		SC16Bit = 0x00000010,
-		SC32Bit = 0x00000020,
-		SC64Bit = 0x00000040,
+		sc1Bit = 0x00000001,
+		sc2Bit = 0x00000002,
+		sc4Bit = 0x00000004,
+		sc8Bit = 0x00000008,
+		sc16Bit = 0x00000010,
+		sc32Bit = 0x00000020,
+		sc64Bit = 0x00000040,
 	};
 
 	struct physical_device_limits
@@ -265,14 +265,14 @@ namespace vk
 
 	enum struct queue_feature_flags : rsl::uint32
 	{
-		Graphics = 0x00000001,
-		Compute = 0x00000002,
-		Transfer = 0x00000004,
-		SparseBinding = 0x00000008,
-		Protected = 0x00000010,
-		VideoDecode = 0x00000020,
-		VideoEncode = 0x00000040,
-		OpticalFlowNV = 0x00000100,
+		graphics = 0x00000001,
+		compute = 0x00000002,
+		transfer = 0x00000004,
+		sparseBinding = 0x00000008,
+		protectedMemory = 0x00000010,
+		videoDecode = 0x00000020,
+		videoEncode = 0x00000040,
+		opticalFlowNV = 0x00000100,
 	};
 
 	struct queue_family_properties
@@ -285,8 +285,8 @@ namespace vk
 
 	enum struct queue_priority : uint8_t
 	{
-		Normal,
-		High,
+		normal,
+		high,
 	};
 
 	std::string_view to_string(queue_priority priority);
@@ -294,7 +294,7 @@ namespace vk
 	struct queue_description
 	{
 		rsl::size_type queueFamilyIndexOverride = -1ull;
-		queue_priority priority = queue_priority::Normal;
+		queue_priority priority = queue_priority::normal;
 
 		// For auto family selection
 		queue_feature_flags requiredFeatures;
