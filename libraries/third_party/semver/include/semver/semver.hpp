@@ -409,8 +409,11 @@ struct version {
   return lhs.compare(rhs) <= 0;
 }
 
-[[nodiscard]] constexpr version operator""_version(const char* str, std::size_t length) {
-  return version{std::string_view{str, length}};
+namespace literals
+{
+    [[nodiscard]] consteval version operator""_version(const char* str, std::size_t length) {
+      return version{std::string_view{str, length}};
+    }
 }
 
 [[nodiscard]] constexpr bool valid(std::string_view str) noexcept {

@@ -23,6 +23,7 @@ int wmain()
 	vk::application_info applicationInfo{
 		.name = "Learning VK",
 		.version = {0, 0, 1},
+        .flags = vk::application_flags::presenting
 	};
 
 	vk::instance instance = vk::create_instance(applicationInfo);

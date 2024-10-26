@@ -53,6 +53,18 @@ namespace vk
 
 	} // namespace
 
+#if RYTHE_PLATFORM_WINDOWS
+	native_window_handle create_window_handle_win32(HWND hwnd)
+	{
+		return std::bit_cast<native_window_handle>(hwnd);
+	}
+
+	HWND get_native_window(native_window_handle handle)
+	{
+		return std::bit_cast<HWND>(handle);
+	}
+#endif
+
 	bool init()
 	{
 		if (libraryIsInitialized)
@@ -169,6 +181,8 @@ namespace vk
 #include "impl/list_of_vulkan_functions.inl"
 
 		std::vector<physical_device> physicalDevices;
+		application_info applicationInfo;
+		semver::version apiVersion;
 
 		VkInstance instance = VK_NULL_HANDLE;
 	};
@@ -210,6 +224,8 @@ namespace vk
 		physical_device_properties properties;
 		std::vector<extension_properties> availableExtensions;
 		std::vector<queue_family_properties> availableQueueFamilies;
+
+		instance instance;
 
 		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	};
@@ -319,16 +335,39 @@ namespace vk
 	} // namespace
 
 	instance create_instance(
-		const application_info& _applicationInfo, const semver::version& apiVersion, std::span<const char*> extensions
+		const application_info& _applicationInfo, const semver::version& apiVersion, std::span<rsl::cstring> extensions
 	)
 	{
+		std::vector<rsl::cstring> enabledExtensions;
+		bool surfaceExtensionActive = false;
 		for (auto& extensionName : extensions)
 		{
-			if (!is_instance_extension_available(extensionName))
+			auto nameView = std::string_view(extensionName);
+			if (!is_instance_extension_available(nameView))
 			{
 				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
-				return {};
 			}
+			else
+			{
+				if (nameView == VK_KHR_SURFACE_EXTENSION_NAME)
+				{
+					surfaceExtensionActive = true;
+				}
+
+				enabledExtensions.push_back(extensionName);
+			}
+		}
+
+		if (!surfaceExtensionActive && _applicationInfo.windowHandle != invalid_native_window_handle)
+		{
+			surfaceExtensionActive = true;
+			enabledExtensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+		}
+
+		if (surfaceExtensionActive && _applicationInfo.windowHandle == invalid_native_window_handle)
+		{
+			std::cout << "Surface extension is activated, but no window handle was provided.\n";
+			return {};
 		}
 
 		VkApplicationInfo applicationInfo{
@@ -350,8 +389,8 @@ namespace vk
 			.pApplicationInfo = &applicationInfo,
 			.enabledLayerCount = 0,
 			.ppEnabledLayerNames = nullptr,
-			.enabledExtensionCount = static_cast<rsl::uint32>(extensions.size()),
-			.ppEnabledExtensionNames = extensions.data(),
+			.enabledExtensionCount = static_cast<rsl::uint32>(enabledExtensions.size()),
+			.ppEnabledExtensionNames = enabledExtensions.data(),
 		};
 
 		VkInstance vkInstance = VK_NULL_HANDLE;
@@ -376,6 +415,9 @@ namespace vk
 			delete nativeInstance;
 			return {};
 		}
+
+		nativeInstance->applicationInfo = _applicationInfo;
+		nativeInstance->apiVersion = apiVersion;
 
 		vk::instance instance;
 		set_native_handle(instance, create_native_handle(nativeInstance));
@@ -463,6 +505,7 @@ namespace vk
 				set_native_handle(physicalDevice, create_native_handle(nativePhysicalDevice));
 
 				nativePhysicalDevice->physicalDevice = pd;
+				nativePhysicalDevice->instance = *this;
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl->name;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
@@ -484,6 +527,16 @@ namespace vk
 		impl->physicalDevices.clear();
 	}
 
+	const application_info& instance::get_application_info() const noexcept
+	{
+		return get_native_ptr(*this)->applicationInfo;
+	}
+
+	const semver::version& instance::get_api_version() const noexcept
+	{
+		return get_native_ptr(*this)->apiVersion;
+	}
+
 	namespace
 	{
 		physical_device copy_physical_device(physical_device src)
@@ -501,87 +554,15 @@ namespace vk
 		{
 			auto* impl = get_native_ptr(physicalDevice);
 
-			struct queue_family_selection
-			{
-				rsl::size_type familyIndex = rsl::npos;
-				rsl::size_type score = 0;
-			};
-
 			std::vector<queue_family_selection> queueFamilySelections;
 			queueFamilySelections.resize(queueDesciptions.size());
 
-			for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
+			if (!physicalDevice.get_queue_family_selection(queueFamilySelections, queueDesciptions))
 			{
-				queueFamilySelections[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
+				return {};
 			}
 
 			auto queueFamilies = physicalDevice.get_available_queue_families();
-
-			{
-				rsl::size_type familyIndex = 0;
-				for (auto& queueFamily : queueFamilies)
-				{
-					rsl::size_type queueIndex = 0;
-					for (auto& queueDesciption : queueDesciptions)
-					{
-						auto& selectionInfo = queueFamilySelections[queueIndex];
-
-						if (queueDesciption.queueFamilyIndexOverride != rsl::npos ||
-							!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
-							queueFamily.queueCount == 0)
-						{
-							queueIndex++;
-							continue;
-						}
-
-						rsl::size_type score = 1;
-
-						score += queueFamily.queueCount * queueDesciption.queueCountImportance;
-						score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
-
-						if (queueDesciption.imageTransferGranularityImportance != 0ull)
-						{
-							rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
-
-							score += maxScore - rsl::math::min(
-													maxScore, ((queueFamily.minImageTransferGranularity.x +
-																queueFamily.minImageTransferGranularity.y +
-																queueFamily.minImageTransferGranularity.z) /
-															   3u) *
-																  queueDesciption.imageTransferGranularityImportance
-												);
-						}
-
-						if (score > selectionInfo.score)
-						{
-							selectionInfo.familyIndex = familyIndex;
-							selectionInfo.score = score;
-						}
-
-						queueIndex++;
-					}
-					familyIndex++;
-				}
-			}
-
-			{
-				bool failed = false;
-				rsl::size_type queueIndex = 0;
-				for (auto& [familyIndex, score] : queueFamilySelections)
-				{
-					if (familyIndex >= queueFamilies.size())
-					{
-						std::cout << "No compatible queue family found for queue " << queueIndex << '\n';
-						failed = true;
-					}
-					queueIndex++;
-				}
-
-				if (failed)
-				{
-					return {};
-				}
-			}
 
 			struct queue_mapping
 			{
@@ -707,6 +688,19 @@ namespace vk
 		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
 	)
 	{
+		using namespace semver::literals;
+		const bool supportsProtectedMemory = get_api_version() >= "1.1.0"_version;
+
+		for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
+		{
+			if (!supportsProtectedMemory &&
+				rsl::enum_flags::has_flag(queueDesciptions[i].requiredFeatures, queue_feature_flags::protectedMemory))
+			{
+				std::cout << "Protected memory operations are not supported for Vulkan versions prior to 1.1.0\n";
+				return {};
+			}
+		}
+
 		auto physicalDevices = create_physical_devices();
 
 		rsl::size_type selectedDevice = rsl::npos;
@@ -718,6 +712,12 @@ namespace vk
 			auto& props = device.get_properties();
 
 			if (props.apiVersion < physicalDeviceDescription.apiVersion)
+			{
+				continue;
+			}
+
+			if (props.limits.maxPerStageDescriptorSampledImages <
+				physicalDeviceDescription.requiredPerStageSampledImages)
 			{
 				continue;
 			}
@@ -796,10 +796,19 @@ namespace vk
 				}
 			}
 
+			std::vector<queue_family_selection> queueFamilySelections;
+			queueFamilySelections.resize(queueDesciptions.size());
+			if (!device.get_queue_family_selection(queueFamilySelections, queueDesciptions))
+			{
+				continue;
+			}
+
 			rsl::size_type deviceScore = 1;
 
 			deviceScore +=
 				physicalDeviceDescription.deviceTypeImportance[static_cast<rsl::size_type>(props.deviceType)];
+
+			deviceScore += props.limits.maxImageDimension2D;
 
 			if (deviceScore > currentScore)
 			{
@@ -823,7 +832,7 @@ namespace vk
 		return result;
 	}
 
-	bool native_instance_vk::load_functions([[maybe_unused]] std::span<const char*> extensions)
+	bool native_instance_vk::load_functions([[maybe_unused]] std::span<rsl::cstring> extensions)
 	{
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
 	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
@@ -939,6 +948,16 @@ namespace vk
 		return false;
 	}
 
+	namespace
+	{
+		queue_feature_flags map_vk_queue_features(VkQueueFlags features, bool supportsPresent)
+		{
+			return rsl::enum_flags::set_flag(
+				static_cast<queue_feature_flags>(features), queue_feature_flags::present, supportsPresent
+			);
+		}
+	} // namespace
+
 	std::span<const queue_family_properties> physical_device::get_available_queue_families(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
@@ -968,10 +987,38 @@ namespace vk
 
 			impl->availableQueueFamilies.clear();
 			impl->availableQueueFamilies.reserve(queueFamilyCount);
-			for (auto& queueFamily : queueFamiliesBuffer)
+
+			[[maybe_unused]] auto* nativeInstance = get_native_ptr(impl->instance);
+
+			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
 			{
+				auto& queueFamily = queueFamiliesBuffer[queueFamilyIndex];
+
+				VkSurfaceKHR surface = VK_NULL_HANDLE;
+
+#if RYTHE_PLATFORM_WINDOWS
+				VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
+					.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+				};
+				surfaceCreateInfo.hwnd = get_native_window(nativeInstance->applicationInfo.windowHandle);
+                if (nativeInstance->vkCreateWin32SurfaceKHR(
+                    nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
+                ) != VK_SUCCESS)
+                {
+					surface = VK_NULL_HANDLE;
+                }
+#endif
+
+				VkBool32 supportsPresent;
+				if (surface == VK_NULL_HANDLE || nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
+                    impl->physicalDevice, queueFamilyIndex, surface, &supportsPresent
+                ) != VK_SUCCESS)
+                {
+					supportsPresent = VK_FALSE;
+                }
+
 				impl->availableQueueFamilies.push_back({
-					.features = static_cast<queue_feature_flags>(queueFamily.queueFlags),
+					.features = map_vk_queue_features(queueFamily.queueFlags, supportsPresent == VK_TRUE),
 					.queueCount = queueFamily.queueCount,
 					.timestampValidBits = queueFamily.timestampValidBits,
 					.minImageTransferGranularity =
@@ -985,6 +1032,69 @@ namespace vk
 		}
 
 		return impl->availableQueueFamilies;
+	}
+
+	bool physical_device::get_queue_family_selection(
+		std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions
+	)
+	{
+		for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
+		{
+			queueFamilySelections[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
+		}
+
+		auto queueFamilies = get_available_queue_families();
+
+		for (rsl::size_type queueIndex = 0; queueIndex < queueDesciptions.size(); queueIndex++)
+		{
+			auto& queueDesciption = queueDesciptions[queueIndex];
+			auto& selectionInfo = queueFamilySelections[queueIndex];
+
+			selectionInfo.familyIndex = rsl::npos;
+			for (rsl::size_type familyIndex = 0; familyIndex < queueFamilies.size(); familyIndex++)
+			{
+				auto& queueFamily = queueFamilies[familyIndex];
+
+				if (queueDesciption.queueFamilyIndexOverride != rsl::npos ||
+					!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
+					queueFamily.queueCount == 0)
+				{
+					continue;
+				}
+
+				rsl::size_type score = 1;
+
+				score += queueFamily.queueCount * queueDesciption.queueCountImportance;
+				score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
+
+				if (queueDesciption.imageTransferGranularityImportance != 0ull)
+				{
+					rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
+
+					score += maxScore - rsl::math::min(
+											maxScore, ((queueFamily.minImageTransferGranularity.x +
+														queueFamily.minImageTransferGranularity.y +
+														queueFamily.minImageTransferGranularity.z) /
+													   3u) *
+														  queueDesciption.imageTransferGranularityImportance
+										);
+				}
+
+				if (score > selectionInfo.score)
+				{
+					selectionInfo.familyIndex = familyIndex;
+					selectionInfo.score = score;
+				}
+			}
+
+			if (selectionInfo.familyIndex == rsl::npos)
+			{
+				std::cout << "No compatible queue family found for queue " << queueIndex << '\n';
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	namespace

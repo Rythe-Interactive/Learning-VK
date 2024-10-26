@@ -1,17 +1,23 @@
 #pragma once
 
-#include <rsl/primitives>
 #include <rsl/math>
 #include <rsl/platform>
+#include <rsl/primitives>
 
 #include <semver/semver.hpp>
 #include <span>
 
 namespace vk
 {
+	DECLARE_OPAQUE_HANDLE(native_window_handle);
+
+#if RYTHE_PLATFORM_WINDOWS
+	native_window_handle create_window_handle_win32(HWND hwnd);
+#endif
+
 	bool init();
 
-    void shut_down();
+	void shut_down();
 
 	struct extension_properties
 	{
@@ -27,6 +33,7 @@ namespace vk
 	{
 		std::string name;
 		semver::version version;
+		native_window_handle windowHandle;
 	};
 
 	DECLARE_OPAQUE_HANDLE(native_instance);
@@ -253,26 +260,28 @@ namespace vk
 	struct physical_device_description
 	{
 		rsl::size_type deviceTypeImportance[5] = {
-            0ull, // Other
+			0ull,    // Other
 			100ull,  // Integrated
 			1000ull, // Discrete
 			0ull,    // Virtual
 			0ull,    // CPU
-        };
-		semver::version apiVersion = semver::version(0,0,0);
-		physical_device_features requiredFeatures;
+		};
+		semver::version apiVersion = semver::version(0, 0, 0);
+		physical_device_features requiredFeatures = {};
+		rsl::size_type requiredPerStageSampledImages = 4096;
 	};
 
 	enum struct queue_feature_flags : rsl::uint32
 	{
-		graphics = 0x00000001,
-		compute = 0x00000002,
-		transfer = 0x00000004,
-		sparseBinding = 0x00000008,
-		protectedMemory = 0x00000010,
-		videoDecode = 0x00000020,
-		videoEncode = 0x00000040,
-		opticalFlowNV = 0x00000100,
+		graphics = 1 << 0,
+		compute = 1 << 1,
+		transfer = 1 << 2,
+		sparseBinding = 1 << 3,
+		protectedMemory = 1 << 4,
+		videoDecode = 1 << 5,
+		videoEncode = 1 << 6,
+		opticalFlowNV = 1 << 7,
+		present = 1 << 8,
 	};
 
 	struct queue_family_properties
@@ -303,6 +312,12 @@ namespace vk
 		rsl::size_type imageTransferGranularityImportance = 1ull;
 	};
 
+	struct queue_family_selection
+	{
+		rsl::size_type familyIndex = rsl::npos;
+		rsl::size_type score = 0;
+	};
+
 	class physical_device;
 	class render_device;
 
@@ -311,10 +326,13 @@ namespace vk
 	public:
 		operator bool() const noexcept;
 
-        void release();
+		void release();
 
 		std::span<physical_device> create_physical_devices(bool forceRefresh = false);
 		void release_physical_devices();
+
+		const application_info& get_application_info() const noexcept;
+		const semver::version& get_api_version() const noexcept;
 
 		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
 
@@ -326,8 +344,8 @@ namespace vk
 	private:
 		native_instance m_nativeInstance = invalid_native_instance;
 
-        friend void set_native_handle(instance&, native_instance);
-    };
+		friend void set_native_handle(instance&, native_instance);
+	};
 
 	DECLARE_OPAQUE_HANDLE(native_physical_device);
 
@@ -336,17 +354,20 @@ namespace vk
 	public:
 		operator bool() const noexcept;
 
-        void release();
+		void release();
 
 		const physical_device_properties& get_properties(bool forceRefresh = false);
 		const physical_device_features& get_features(bool forceRefresh = false);
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
 		bool is_extension_available(std::string_view extensionName);
 		std::span<const queue_family_properties> get_available_queue_families(bool forceRefresh = false);
+		bool get_queue_family_selection(
+			std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions
+		);
 
 		rythe_always_inline native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
 
-        bool in_use() const noexcept;
+		bool in_use() const noexcept;
 
 		render_device create_render_device(
 			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions = {}
@@ -367,10 +388,10 @@ namespace vk
 	public:
 		operator bool() const noexcept;
 
-        void release();
+		void release();
 
-        std::span<queue> get_queues() noexcept;
-        physical_device get_physical_device() const noexcept;
+		std::span<queue> get_queues() noexcept;
+		physical_device get_physical_device() const noexcept;
 
 		rythe_always_inline native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
 
@@ -388,7 +409,7 @@ namespace vk
 		rsl::size_type get_family_index() const noexcept;
 		queue_priority get_priority() const noexcept;
 
-        rythe_always_inline native_queue get_native_handle() const noexcept { return m_nativeQueue; }
+		rythe_always_inline native_queue get_native_handle() const noexcept { return m_nativeQueue; }
 
 	private:
 		native_queue m_nativeQueue = invalid_native_queue;
