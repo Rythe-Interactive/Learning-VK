@@ -20,7 +20,31 @@ namespace vk
 	DECLARE_OPAQUE_HANDLE(native_window_handle);
 
 #if RYTHE_PLATFORM_WINDOWS
-	native_window_handle create_window_handle_win32(HWND hwnd);
+    struct native_window_info_win32
+    {
+		HINSTANCE hinstance;
+		HWND hwnd;
+    };
+
+	native_window_handle create_window_handle_win32(native_window_info_win32& windowInfo);
+#elif RYTHE_PLATFORM_LINUX
+	#ifdef RYTHE_SURFACE_XCB
+	struct native_window_info_xcb
+	{
+		xcb_connection_t* connection;
+		xcb_window_t window;
+	};
+
+	native_window_handle create_window_handle_xcb(native_window_info_xcb& windowInfo);
+	#elif RYTHE_SURFACE_XLIB
+	struct native_window_info_xlib
+	{
+		Display* display;
+		Window window;
+	};
+
+	native_window_handle create_window_handle_xlib(native_window_info_xlib& windowInfo);
+	#endif
 #endif
 
 	bool init();

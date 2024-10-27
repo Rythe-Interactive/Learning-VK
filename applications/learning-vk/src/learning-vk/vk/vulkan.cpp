@@ -14,8 +14,7 @@
 		#define VK_USE_PLATFORM_XCB_KHR
 		#include <vulkan/vulkan_xcb.h>
 		#define VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME VK_KHR_XCB_SURFACE_EXTENSION_NAME
-	#endif
-	#ifdef RYTHE_SURFACE_XLIB
+	#elif RYTHE_SURFACE_XLIB
 		#define VK_USE_PLATFORM_XLIB_KHR
 		#include <vulkan/vulkan_xlib.h>
 		#define VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME VK_KHR_XLIB_SURFACE_EXTENSION_NAME
@@ -52,15 +51,61 @@ namespace vk
 	} // namespace
 
 #if RYTHE_PLATFORM_WINDOWS
-	native_window_handle create_window_handle_win32(HWND hwnd)
+	native_window_handle create_window_handle_win32(native_window_info_win32& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(hwnd);
+		return std::bit_cast<native_window_handle>(&windowInfo);
 	}
 
-	HWND get_native_window(native_window_handle handle)
+	namespace
 	{
-		return std::bit_cast<HWND>(handle);
+		HWND get_hwnd(native_window_handle handle)
+		{
+			return std::bit_cast<native_window_info_win32*>(handle)->hwnd;
+		}
+
+		HINSTANCE get_hinstance(native_window_handle handle)
+		{
+			return std::bit_cast<native_window_info_win32*>(handle)->hinstance;
+		}
+	} // namespace
+#elif RYTHE_PLATFORM_LINUX
+	#ifdef RYTHE_SURFACE_XCB
+	native_window_handle create_window_handle_xcb(native_window_info_xcb& windowInfo)
+	{
+		return std::bit_cast<native_window_handle>(&windowInfo);
 	}
+
+	namespace
+	{
+		xcb_connection_t* get_connection(native_window_handle handle)
+		{
+			return std::bit_cast<native_window_info_xlib*>(handle)->connection;
+		}
+
+		xcb_window_t get_window(native_window_handle handle)
+		{
+			return std::bit_cast<native_window_info_xlib*>(handle)->window;
+		}
+	} // namespace
+	#elif RYTHE_SURFACE_XLIB
+	native_window_handle create_window_handle_xlib(native_window_info_xlib& windowInfo)
+	{
+		return std::bit_cast<native_window_handle>(&windowInfo);
+	}
+
+	namespace
+	{
+		Display* get_display(native_window_handle handle)
+		{
+			return std::bit_cast<native_window_info_xlib*>(handle)->display;
+		}
+
+		Window get_window(native_window_handle handle)
+		{
+			return std::bit_cast<native_window_info_xlib*>(handle)->window;
+		}
+	} // namespace
+	#endif
 #endif
 
 	bool init()
@@ -673,14 +718,14 @@ namespace vk
 					renderDevicePtr->vkGetDeviceQueue(
 						renderDevicePtr->device, info.queueFamilyIndex, queueIndex, &vkQueue
 					);
+					auto inputIndex = mapping.inputOrderIndex[queueIndex];
 
 					if (vkQueue == VK_NULL_HANDLE)
 					{
-						// not sure yet
+						std::cout << "Failed to create queue " << inputIndex << '\n';
 						continue;
 					}
 
-					auto inputIndex = mapping.inputOrderIndex[queueIndex];
 					auto& queue = renderDevicePtr->queues[inputIndex];
 
 					native_queue_vk* nativeQueue = new native_queue_vk();
@@ -717,6 +762,35 @@ namespace vk
 				std::cout << "Protected memory operations are not supported for Vulkan versions prior to 1.1.0\n";
 				return {};
 			}
+		}
+
+		bool presentingApplication = get_application_info().windowHandle != invalid_native_window_handle;
+
+		std::vector<rsl::cstring> enabledExtensions;
+		enabledExtensions.reserve(extensions.size() + (presentingApplication ? 1 : 0));
+
+		bool swapchainExtensionPresent = false;
+
+		for (auto& extensionName : extensions)
+		{
+			std::string_view extensionNameView = extensionName;
+			enabledExtensions.push_back(extensionName);
+
+			if (presentingApplication && extensionNameView == VK_KHR_SWAPCHAIN_EXTENSION_NAME)
+			{
+				swapchainExtensionPresent = true;
+			}
+		}
+
+		if (presentingApplication && !swapchainExtensionPresent)
+		{
+			enabledExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		}
+
+		if (!presentingApplication && swapchainExtensionPresent)
+		{
+			std::cout << "Swapchain extension is activated, but no window handle was provided.\n";
+			return {};
 		}
 
 		auto physicalDevices = create_physical_devices();
@@ -806,7 +880,7 @@ namespace vk
 
 #undef CHECK_FEATURE
 
-			for (auto& extensionName : extensions)
+			for (auto& extensionName : enabledExtensions)
 			{
 				if (!device.is_extension_available(extensionName))
 				{
@@ -839,11 +913,12 @@ namespace vk
 
 		if (selectedDevice >= physicalDevices.size())
 		{
-			return render_device();
+			return {};
 		}
 
-		auto result =
-			create_render_device_no_extension_check(physicalDevices[selectedDevice], queueDesciptions, extensions);
+		auto result = create_render_device_no_extension_check(
+			physicalDevices[selectedDevice], queueDesciptions, enabledExtensions
+		);
 
 		release_physical_devices();
 
@@ -1008,31 +1083,70 @@ namespace vk
 
 			auto* nativeInstance = get_native_ptr(impl->instance);
 
+			VkSurfaceKHR surface = VK_NULL_HANDLE;
+
+			if (nativeInstance->applicationInfo.windowHandle != invalid_native_window_handle)
+			{
+#if RYTHE_PLATFORM_WINDOWS
+				VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
+					.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+					.pNext = nullptr,
+					.flags = 0,
+					.hinstance = get_hinstance(nativeInstance->applicationInfo.windowHandle),
+					.hwnd = get_hwnd(nativeInstance->applicationInfo.windowHandle),
+				};
+
+				if (nativeInstance->vkCreateWin32SurfaceKHR(
+						nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
+					) != VK_SUCCESS)
+				{
+					surface = VK_NULL_HANDLE;
+				}
+#elif RYTHE_PLATFORM_LINUX
+	#ifdef RYTHE_SURFACE_XCB
+				VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {
+					.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
+					.pNext = nullptr,
+					.flags = 0,
+					.connection = get_connection(nativeInstance->applicationInfo.windowHandle),
+					.window = get_window(nativeInstance->applicationInfo.windowHandle),
+				};
+
+				if (nativeInstance->vkCreateXcbSurfaceKHR(
+						nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
+					) != VK_SUCCESS)
+				{
+					surface = VK_NULL_HANDLE;
+				}
+
+	#elif RYTHE_SURFACE_XLIB
+				VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {
+					.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+					.pNext = nullptr,
+					.flags = 0,
+					.dpy = get_display(nativeInstance->applicationInfo.windowHandle),
+					.window = get_window(nativeInstance->applicationInfo.windowHandle),
+				};
+
+				if (nativeInstance->vkCreateXlibSurfaceKHR(
+						nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
+					) != VK_SUCCESS)
+				{
+					surface = VK_NULL_HANDLE;
+				}
+	#endif
+#endif
+			}
+
 			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
 			{
 				auto& queueFamily = queueFamiliesBuffer[queueFamilyIndex];
 
 				VkBool32 supportsPresent = VK_FALSE;
 
-				if (nativeInstance->applicationInfo.windowHandle != invalid_native_window_handle)
+				if (surface != VK_NULL_HANDLE)
 				{
-					VkSurfaceKHR surface = VK_NULL_HANDLE;
-
-#if RYTHE_PLATFORM_WINDOWS
-					VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
-						.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-					};
-					surfaceCreateInfo.hwnd = get_native_window(nativeInstance->applicationInfo.windowHandle);
-					if (nativeInstance->vkCreateWin32SurfaceKHR(
-							nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
-						) != VK_SUCCESS)
-					{
-						surface = VK_NULL_HANDLE;
-					}
-#endif
-
-					if (surface == VK_NULL_HANDLE ||
-						nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
+					if (nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
 							impl->physicalDevice, queueFamilyIndex, surface, &supportsPresent
 						) != VK_SUCCESS)
 					{
@@ -1051,6 +1165,11 @@ namespace vk
 										 queueFamily.minImageTransferGranularity.depth,
 										 },
 				});
+			}
+
+			if (surface != VK_NULL_HANDLE)
+			{
+				nativeInstance->vkDestroySurfaceKHR(nativeInstance->instance, surface, nullptr);
 			}
 		}
 
@@ -1403,16 +1522,45 @@ namespace vk
 		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
 	)
 	{
+		auto* impl = get_native_ptr(*this);
+
+		bool presentingApplication = impl->instance.get_application_info().windowHandle != invalid_native_window_handle;
+
+		std::vector<rsl::cstring> enabledExtensions;
+		enabledExtensions.reserve(extensions.size() + (presentingApplication ? 1 : 0));
+
+        bool swapchainExtensionPresent = false;
+
 		for (auto& extensionName : extensions)
 		{
-			if (!is_extension_available(extensionName))
+			std::string_view extensionNameView = extensionName;
+			if (is_extension_available(extensionNameView))
 			{
-				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
-				return {};
+				enabledExtensions.push_back(extensionName);
 			}
+            else
+			{
+				std::cout << "Extension \"" << extensionNameView << "\" is not available.\n";
+            }
+
+            if (presentingApplication && extensionNameView == VK_KHR_SWAPCHAIN_EXTENSION_NAME)
+			{
+				swapchainExtensionPresent = true;
+            }
 		}
 
-		return create_render_device_no_extension_check(*this, queueDesciptions, extensions);
+        if (presentingApplication && !swapchainExtensionPresent)
+        {
+			enabledExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        }
+
+        if (!presentingApplication && swapchainExtensionPresent)
+		{
+			std::cout << "Swapchain extension is activated, but no window handle was provided.\n";
+			return {};
+        }
+
+		return create_render_device_no_extension_check(*this, queueDesciptions, enabledExtensions);
 	}
 
 	render_device::operator bool() const noexcept

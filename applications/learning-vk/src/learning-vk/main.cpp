@@ -4,7 +4,25 @@
 
 #include "vk/vulkan.hpp"
 
+#if RYTHE_PLATFORM_WINDOWS
 #include <Windows.h>
+
+LRESULT
+Wndproc(
+	[[maybe_unused]] HWND window, [[maybe_unused]] UINT message, [[maybe_unused]] WPARAM wparam,
+	[[maybe_unused]] LPARAM lparam
+)
+{
+    if (message == WM_CLOSE)
+    {
+		PostQuitMessage(NO_ERROR);
+		return NO_ERROR;
+    }
+
+	return DefWindowProc(window, message, wparam, lparam);
+}
+
+#endif
 
 int wmain()
 {
@@ -22,10 +40,40 @@ int wmain()
 
 	std::cout << '\n';
 
+    vk::native_window_handle windowHandle = vk::invalid_native_window_handle;
+
+    #if RYTHE_PLATFORM_WINDOWS
+	WCHAR CLASS_NAME[] = L"Learning-VK Window Class";
+	HINSTANCE hinstance = GetModuleHandleA(nullptr);
+
+	WNDCLASS wc = {};
+
+	wc.lpfnWndProc = Wndproc;
+	wc.hInstance = hinstance;
+	wc.lpszClassName = CLASS_NAME;
+
+    RegisterClassW(&wc);
+
+    HWND hwnd = CreateWindowW(
+		CLASS_NAME, L"Learning-VK", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+		CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, hinstance, nullptr
+	);
+
+	ShowWindow(hwnd, SW_SHOWDEFAULT);
+	UpdateWindow(hwnd);
+
+	vk::native_window_info_win32 windowInfo{
+		.hinstance = hinstance,
+		.hwnd = hwnd,
+	};
+
+    windowHandle = vk::create_window_handle_win32(windowInfo);
+    #endif
+
 	vk::application_info applicationInfo{
 		.name = "Learning VK",
 		.version = {0, 0, 1},
-		.windowHandle = vk::create_window_handle_win32(GetConsoleWindow()),
+		.windowHandle = windowHandle,
 	};
 
 	vk::instance instance = vk::create_instance(applicationInfo);
@@ -199,11 +247,24 @@ int wmain()
 	[[maybe_unused]] auto computeQueue = queues[1];
 	[[maybe_unused]] auto transferQueue = queues[2];
 
+    #if RYTHE_PLATFORM_WINDOWS
+	MSG message;
+	while (GetMessage(&message, NULL, 0, 0) > 0)
+	{
+		TranslateMessage(&message);
+		DispatchMessage(&message);
+	};
+    #endif
+
 	renderDevice.release();
 
 	instance.release();
 
 	vk::shut_down();
+
+    #if RYTHE_PLATFORM_WINDOWS
+	DestroyWindow(hwnd);
+    #endif
 
 	std::cout << "Everything fine so far!\n";
 	return 0;
