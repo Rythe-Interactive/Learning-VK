@@ -26,7 +26,7 @@ namespace vk
 		HWND hwnd;
     };
 
-	native_window_handle create_window_handle_win32(native_window_info_win32& windowInfo);
+	native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo);
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
 	struct native_window_info_xcb
@@ -35,7 +35,7 @@ namespace vk
 		xcb_window_t window;
 	};
 
-	native_window_handle create_window_handle_xcb(native_window_info_xcb& windowInfo);
+	native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo);
 	#elif RYTHE_SURFACE_XLIB
 	struct native_window_info_xlib
 	{
@@ -43,9 +43,11 @@ namespace vk
 		Window window;
 	};
 
-	native_window_handle create_window_handle_xlib(native_window_info_xlib& windowInfo);
+	native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo);
 	#endif
 #endif
+
+    void release_window_handle(native_window_handle handle);
 
 	bool init();
 
@@ -353,6 +355,23 @@ namespace vk
 	class physical_device;
 	class render_device;
 
+	DECLARE_OPAQUE_HANDLE(native_surface);
+
+	class surface
+	{
+	public:
+		operator bool() const noexcept;
+
+		void release();
+
+		rythe_always_inline native_surface get_native_handle() const noexcept { return m_nativeSurface; }
+
+	private:
+		native_surface m_nativeSurface;
+
+		friend void set_native_handle(surface&, native_surface);
+	};
+
 	class instance
 	{
 	public:
@@ -366,12 +385,14 @@ namespace vk
 		const application_info& get_application_info() const noexcept;
 		const semver::version& get_api_version() const noexcept;
 
-		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
+        surface create_surface();
 
 		render_device auto_select_and_create_device(
 			const physical_device_description& physicalDeviceDescription,
-			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions = {}
+			std::span<const queue_description> queueDesciptions, surface surface = {}, std::span<rsl::cstring> extensions = {}
 		);
+
+		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
 
 	private:
 		native_instance m_nativeInstance = invalid_native_instance;
@@ -392,18 +413,19 @@ namespace vk
 		const physical_device_features& get_features(bool forceRefresh = false);
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
 		bool is_extension_available(std::string_view extensionName);
-		std::span<const queue_family_properties> get_available_queue_families(bool forceRefresh = false);
+		std::span<const queue_family_properties> get_available_queue_families(surface surface = {}, bool forceRefresh = false);
 		bool get_queue_family_selection(
-			std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions
+			std::span<queue_family_selection> queueFamilySelections,
+			std::span<const queue_description> queueDesciptions, surface surface = {}
 		);
-
-		rythe_always_inline native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
 
 		bool in_use() const noexcept;
 
 		render_device create_render_device(
 			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions = {}
 		);
+
+		rythe_always_inline native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
 
 	private:
 		native_physical_device m_nativePhysicalDevice = invalid_native_physical_device;

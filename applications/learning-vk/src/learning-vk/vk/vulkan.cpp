@@ -51,9 +51,9 @@ namespace vk
 	} // namespace
 
 #if RYTHE_PLATFORM_WINDOWS
-	native_window_handle create_window_handle_win32(native_window_info_win32& windowInfo)
+	native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(&windowInfo);
+		return std::bit_cast<native_window_handle>(new native_window_info_win32(windowInfo));
 	}
 
 	namespace
@@ -70,27 +70,27 @@ namespace vk
 	} // namespace
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
-	native_window_handle create_window_handle_xcb(native_window_info_xcb& windowInfo)
+	native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(&windowInfo);
+		return std::bit_cast<native_window_handle>(new native_window_info_xcb(windowInfo));
 	}
 
 	namespace
 	{
 		xcb_connection_t* get_connection(native_window_handle handle)
 		{
-			return std::bit_cast<native_window_info_xlib*>(handle)->connection;
+			return std::bit_cast<native_window_info_xcb*>(handle)->connection;
 		}
 
 		xcb_window_t get_window(native_window_handle handle)
 		{
-			return std::bit_cast<native_window_info_xlib*>(handle)->window;
+			return std::bit_cast<native_window_info_xcb*>(handle)->window;
 		}
 	} // namespace
 	#elif RYTHE_SURFACE_XLIB
-	native_window_handle create_window_handle_xlib(native_window_info_xlib& windowInfo)
+	native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(&windowInfo);
+		return std::bit_cast<native_window_handle>(new native_window_info_xlib(windowInfo));
 	}
 
 	namespace
@@ -107,6 +107,19 @@ namespace vk
 	} // namespace
 	#endif
 #endif
+
+	void release_window_handle(native_window_handle handle)
+	{
+#if RYTHE_PLATFORM_WINDOWS
+		delete std::bit_cast<native_window_info_win32*>(handle);
+#elif RYTHE_PLATFORM_LINUX
+	#ifdef RYTHE_SURFACE_XCB
+		delete std::bit_cast<native_window_info_xcb*>(handle);
+	#elif RYTHE_SURFACE_XLIB
+		delete std::bit_cast<native_window_info_xlib*>(handle);
+	#endif
+#endif
+	}
 
 	bool init()
 	{
@@ -230,7 +243,7 @@ namespace vk
 		VkInstance instance = VK_NULL_HANDLE;
 	};
 
-	static void set_native_handle(instance& target, native_instance handle)
+	rythe_always_inline static void set_native_handle(instance& target, native_instance handle)
 	{
 		target.m_nativeInstance = handle;
 	}
@@ -249,6 +262,33 @@ namespace vk
 		using api_type = vk::instance;
 		using handle_type = native_instance;
 		constexpr static handle_type invalid_handle = invalid_native_instance;
+	};
+
+	struct native_surface_vk
+	{
+		VkSurfaceKHR surface = VK_NULL_HANDLE;
+		instance instance;
+	};
+
+	rythe_always_inline static void set_native_handle(surface& target, native_surface handle)
+	{
+		target.m_nativeSurface = handle;
+	}
+
+	template <>
+	struct native_handle_traits<surface>
+	{
+		using native_type = native_surface_vk;
+		using handle_type = native_surface;
+		constexpr static handle_type invalid_handle = invalid_native_surface;
+	};
+
+	template <>
+	struct native_handle_traits<native_surface_vk>
+	{
+		using api_type = surface;
+		using handle_type = native_surface;
+		constexpr static handle_type invalid_handle = invalid_native_surface;
 	};
 
 	struct native_physical_device_vk
@@ -273,7 +313,7 @@ namespace vk
 		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	};
 
-	static void set_native_handle(physical_device& target, native_physical_device handle)
+	rythe_always_inline static void set_native_handle(physical_device& target, native_physical_device handle)
 	{
 		target.m_nativePhysicalDevice = handle;
 	}
@@ -310,7 +350,7 @@ namespace vk
 		VkDevice device = VK_NULL_HANDLE;
 	};
 
-	static void set_native_handle(render_device& target, native_render_device handle)
+	rythe_always_inline static void set_native_handle(render_device& target, native_render_device handle)
 	{
 		target.m_nativeRenderDevice = handle;
 	}
@@ -341,7 +381,7 @@ namespace vk
 		VkQueue queue = VK_NULL_HANDLE;
 	};
 
-	static void set_native_handle(queue& target, native_queue handle)
+	rythe_always_inline static void set_native_handle(queue& target, native_queue handle)
 	{
 		target.m_nativeQueue = handle;
 	}
@@ -746,9 +786,74 @@ namespace vk
 		}
 	} // namespace
 
+	surface instance::create_surface()
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (impl->applicationInfo.windowHandle == invalid_native_window_handle)
+		{
+			return {};
+		}
+
+		VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
+
+#if RYTHE_PLATFORM_WINDOWS
+		VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+			.pNext = nullptr,
+			.flags = 0,
+			.hinstance = get_hinstance(impl->applicationInfo.windowHandle),
+			.hwnd = get_hwnd(impl->applicationInfo.windowHandle),
+		};
+
+		if (impl->vkCreateWin32SurfaceKHR(impl->instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		{
+			return {};
+		}
+#elif RYTHE_PLATFORM_LINUX
+	#ifdef RYTHE_SURFACE_XCB
+		VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
+			.pNext = nullptr,
+			.flags = 0,
+			.connection = get_connection(impl->applicationInfo.windowHandle),
+			.window = get_window(impl->applicationInfo.windowHandle),
+		};
+
+		if (impl->vkCreateXcbSurfaceKHR(impl->instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		{
+			return {};
+		}
+
+	#elif RYTHE_SURFACE_XLIB
+		VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+			.pNext = nullptr,
+			.flags = 0,
+			.dpy = get_display(impl->applicationInfo.windowHandle),
+			.window = get_window(impl->applicationInfo.windowHandle),
+		};
+
+		if (impl->vkCreateXlibSurfaceKHR(impl->instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		{
+			return {};
+		}
+	#endif
+#endif
+
+		native_surface_vk* nativeSurface = new native_surface_vk();
+		nativeSurface->surface = vkSurface;
+		nativeSurface->instance = *this;
+
+		surface result;
+		set_native_handle(result, create_native_handle(nativeSurface));
+
+		return result;
+	}
+
 	render_device instance::auto_select_and_create_device(
 		const physical_device_description& physicalDeviceDescription,
-		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
+		std::span<const queue_description> queueDesciptions, surface surface, std::span<rsl::cstring> extensions
 	)
 	{
 		using namespace semver::literals;
@@ -890,7 +995,7 @@ namespace vk
 
 			std::vector<queue_family_selection> queueFamilySelections;
 			queueFamilySelections.resize(queueDesciptions.size());
-			if (!device.get_queue_family_selection(queueFamilySelections, queueDesciptions))
+			if (!device.get_queue_family_selection(queueFamilySelections, queueDesciptions, surface))
 			{
 				continue;
 			}
@@ -986,6 +1091,27 @@ namespace vk
 		return true;
 	}
 
+	surface::operator bool() const noexcept
+	{
+		auto ptr = get_native_ptr(*this);
+		return ptr != nullptr && ptr->surface != VK_NULL_HANDLE;
+	}
+
+	void surface::release()
+	{
+		auto impl = get_native_ptr(*this);
+		if (!impl)
+		{
+			return;
+		}
+
+		auto nativeInstance = get_native_ptr(impl->instance);
+		nativeInstance->vkDestroySurfaceKHR(nativeInstance->instance, impl->surface, nullptr);
+
+		m_nativeSurface = invalid_native_surface;
+		delete impl;
+	}
+
 	std::span<const extension_properties> physical_device::get_available_extensions(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
@@ -1051,7 +1177,8 @@ namespace vk
 		}
 	} // namespace
 
-	std::span<const queue_family_properties> physical_device::get_available_queue_families(bool forceRefresh)
+	std::span<const queue_family_properties>
+	physical_device::get_available_queue_families(surface surface, bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
 
@@ -1083,60 +1210,14 @@ namespace vk
 
 			auto* nativeInstance = get_native_ptr(impl->instance);
 
-			VkSurfaceKHR surface = VK_NULL_HANDLE;
-
-			if (nativeInstance->applicationInfo.windowHandle != invalid_native_window_handle)
+            bool surfaceCreated = false;
+            if (!surface)
 			{
-#if RYTHE_PLATFORM_WINDOWS
-				VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {
-					.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-					.pNext = nullptr,
-					.flags = 0,
-					.hinstance = get_hinstance(nativeInstance->applicationInfo.windowHandle),
-					.hwnd = get_hwnd(nativeInstance->applicationInfo.windowHandle),
-				};
-
-				if (nativeInstance->vkCreateWin32SurfaceKHR(
-						nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
-					) != VK_SUCCESS)
-				{
-					surface = VK_NULL_HANDLE;
-				}
-#elif RYTHE_PLATFORM_LINUX
-	#ifdef RYTHE_SURFACE_XCB
-				VkXcbSurfaceCreateInfoKHR surfaceCreateInfo = {
-					.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
-					.pNext = nullptr,
-					.flags = 0,
-					.connection = get_connection(nativeInstance->applicationInfo.windowHandle),
-					.window = get_window(nativeInstance->applicationInfo.windowHandle),
-				};
-
-				if (nativeInstance->vkCreateXcbSurfaceKHR(
-						nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
-					) != VK_SUCCESS)
-				{
-					surface = VK_NULL_HANDLE;
-				}
-
-	#elif RYTHE_SURFACE_XLIB
-				VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {
-					.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
-					.pNext = nullptr,
-					.flags = 0,
-					.dpy = get_display(nativeInstance->applicationInfo.windowHandle),
-					.window = get_window(nativeInstance->applicationInfo.windowHandle),
-				};
-
-				if (nativeInstance->vkCreateXlibSurfaceKHR(
-						nativeInstance->instance, &surfaceCreateInfo, nullptr, &surface
-					) != VK_SUCCESS)
-				{
-					surface = VK_NULL_HANDLE;
-				}
-	#endif
-#endif
+				surface = impl->instance.create_surface();
+				surfaceCreated = true;
 			}
+
+			native_surface_vk* nativeSurface = get_native_ptr(surface);
 
 			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
 			{
@@ -1144,10 +1225,10 @@ namespace vk
 
 				VkBool32 supportsPresent = VK_FALSE;
 
-				if (surface != VK_NULL_HANDLE)
+				if (nativeSurface)
 				{
 					if (nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
-							impl->physicalDevice, queueFamilyIndex, surface, &supportsPresent
+							impl->physicalDevice, queueFamilyIndex, nativeSurface->surface, &supportsPresent
 						) != VK_SUCCESS)
 					{
 						supportsPresent = VK_FALSE;
@@ -1167,9 +1248,9 @@ namespace vk
 				});
 			}
 
-			if (surface != VK_NULL_HANDLE)
+            if (surfaceCreated)
 			{
-				nativeInstance->vkDestroySurfaceKHR(nativeInstance->instance, surface, nullptr);
+				surface.release();
 			}
 		}
 
@@ -1177,7 +1258,8 @@ namespace vk
 	}
 
 	bool physical_device::get_queue_family_selection(
-		std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions
+		std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions,
+		surface surface
 	)
 	{
 		for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
@@ -1185,7 +1267,7 @@ namespace vk
 			queueFamilySelections[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
 		}
 
-		auto queueFamilies = get_available_queue_families();
+		auto queueFamilies = get_available_queue_families(surface);
 
 		for (rsl::size_type queueIndex = 0; queueIndex < queueDesciptions.size(); queueIndex++)
 		{
@@ -1529,7 +1611,7 @@ namespace vk
 		std::vector<rsl::cstring> enabledExtensions;
 		enabledExtensions.reserve(extensions.size() + (presentingApplication ? 1 : 0));
 
-        bool swapchainExtensionPresent = false;
+		bool swapchainExtensionPresent = false;
 
 		for (auto& extensionName : extensions)
 		{
@@ -1538,27 +1620,27 @@ namespace vk
 			{
 				enabledExtensions.push_back(extensionName);
 			}
-            else
+			else
 			{
 				std::cout << "Extension \"" << extensionNameView << "\" is not available.\n";
-            }
+			}
 
-            if (presentingApplication && extensionNameView == VK_KHR_SWAPCHAIN_EXTENSION_NAME)
+			if (presentingApplication && extensionNameView == VK_KHR_SWAPCHAIN_EXTENSION_NAME)
 			{
 				swapchainExtensionPresent = true;
-            }
+			}
 		}
 
-        if (presentingApplication && !swapchainExtensionPresent)
-        {
+		if (presentingApplication && !swapchainExtensionPresent)
+		{
 			enabledExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-        }
+		}
 
-        if (!presentingApplication && swapchainExtensionPresent)
+		if (!presentingApplication && swapchainExtensionPresent)
 		{
 			std::cout << "Swapchain extension is activated, but no window handle was provided.\n";
 			return {};
-        }
+		}
 
 		return create_render_device_no_extension_check(*this, queueDesciptions, enabledExtensions);
 	}

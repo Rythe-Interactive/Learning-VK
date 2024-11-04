@@ -100,7 +100,9 @@ int wmain()
 		 },
 	};
 
-	auto renderDevice = instance.auto_select_and_create_device(deviceDesc, queueDescs);
+    auto surface = instance.create_surface();
+
+	auto renderDevice = instance.auto_select_and_create_device(deviceDesc, queueDescs, surface);
 
 	if (!renderDevice)
 	{
@@ -258,7 +260,11 @@ int wmain()
 
 	renderDevice.release();
 
+    surface.release();
+
 	instance.release();
+
+    vk::release_window_handle(windowHandle);
 
 	vk::shut_down();
 
