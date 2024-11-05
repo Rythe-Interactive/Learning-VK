@@ -301,6 +301,8 @@ namespace vk
 
 		render_device renderDevice;
 
+        bool surfaceCapsLoaded = false;
+		surface_capabilities surfaceCaps;
 		bool featuresLoaded = false;
 		physical_device_features features;
 		bool propertiesLoaded = false;
@@ -1112,291 +1114,214 @@ namespace vk
 		delete impl;
 	}
 
-	std::span<const extension_properties> physical_device::get_available_extensions(bool forceRefresh)
+	physical_device::operator bool() const noexcept
+	{
+		auto ptr = get_native_ptr(*this);
+		return ptr != nullptr && ptr->physicalDevice != VK_NULL_HANDLE;
+	}
+
+	void physical_device::release()
 	{
 		auto* impl = get_native_ptr(*this);
 
-		if (forceRefresh || impl->availableExtensions.empty())
+		if (!impl)
 		{
-			rsl::uint32 extensionCount = 0;
-
-			VkResult result =
-				impl->vkEnumerateDeviceExtensionProperties(impl->physicalDevice, nullptr, &extensionCount, nullptr);
-			if (result != VK_SUCCESS || extensionCount == 0)
-			{
-				std::cout << "Count not query the number of device extensions.\n";
-				return {};
-			}
-
-			std::vector<VkExtensionProperties> extensionPropertiesBuffer;
-			extensionPropertiesBuffer.resize(extensionCount);
-			result = impl->vkEnumerateDeviceExtensionProperties(
-				impl->physicalDevice, nullptr, &extensionCount, extensionPropertiesBuffer.data()
-			);
-
-			if (result != VK_SUCCESS || extensionCount == 0)
-			{
-				std::cout << "Could not enumerate device extensions.\n";
-				return {};
-			}
-
-			impl->availableExtensions.clear();
-			impl->availableExtensions.reserve(extensionCount);
-			for (auto& extension : extensionPropertiesBuffer)
-			{
-				impl->availableExtensions.push_back({
-					.name = extension.extensionName,
-					.specVersion = decomposeVkVersion(extension.specVersion),
-				});
-			}
+			return;
 		}
 
-		return impl->availableExtensions;
-	}
-
-	bool physical_device::is_extension_available(std::string_view extensionName)
-	{
-		for (auto& extension : get_available_extensions())
-		{
-			if (extension.name == extensionName)
-			{
-				return true;
-			}
-		}
-
-		return false;
+		m_nativePhysicalDevice = invalid_native_physical_device;
+		delete impl;
 	}
 
 	namespace
 	{
-		queue_feature_flags map_vk_queue_features(VkQueueFlags features, bool supportsPresent)
+		surface_transform_flags map_vk_surface_transform_flags(VkSurfaceTransformFlagBitsKHR flags)
 		{
-			return rsl::enum_flags::set_flag(
-				static_cast<queue_feature_flags>(features), queue_feature_flags::present, supportsPresent
+			surface_transform_flags result = rsl::enum_flags::make_zero<surface_transform_flags>();
+
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::identity,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
 			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::rotate90,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::rotate180,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::rotate270,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::horizontalMirror,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::horizontalMirrorRotate90,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::horizontalMirrorRotate180,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::horizontalMirrorRotate270,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, surface_transform_flags::inherit,
+				rsl::enum_flags::has_flag(flags, VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR)
+			);
+
+			return result;
+		}
+
+		composite_alpha_flags map_vk_composite_alpha_flags(VkCompositeAlphaFlagBitsKHR flags)
+		{
+			composite_alpha_flags result = rsl::enum_flags::make_zero<composite_alpha_flags>();
+
+			result = rsl::enum_flags::set_flag(
+				result, composite_alpha_flags::opaque,
+				rsl::enum_flags::has_flag(flags, VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, composite_alpha_flags::preMultiplied,
+				rsl::enum_flags::has_flag(flags, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, composite_alpha_flags::postMultiplied,
+				rsl::enum_flags::has_flag(flags, VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, composite_alpha_flags::inherit,
+				rsl::enum_flags::has_flag(flags, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
+			);
+
+			return result;
+		}
+
+		image_usage_flags map_vk_image_usage_flags(VkImageUsageFlagBits flags)
+		{
+			image_usage_flags result = rsl::enum_flags::make_zero<image_usage_flags>();
+
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::transferSrc,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::transferDst,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::sampled, rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_SAMPLED_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::storage, rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_STORAGE_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::colorAttachment,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::depthStencilAttachment,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::transientAttachment,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::inputAttachment,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::fragmentShadingRateAttachment,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::fragmentDensityMap,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::videoDecodeDST,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::videoDecodeSRC,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::videoDecodeDPB,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::videoEncodeDST,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::videoEncodeSRC,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::videoEncodeDPB,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::invocationMaskHUAWEI,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_INVOCATION_MASK_BIT_HUAWEI)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::attachmentFeedbackLoop,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::sampleWeightQCOM,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::sampleBlockMatchQCOM,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM)
+			);
+			result = rsl::enum_flags::set_flag(
+				result, image_usage_flags::hostTransfer,
+				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT)
+			);
+
+			return result;
 		}
 	} // namespace
 
-	std::span<const queue_family_properties>
-	physical_device::get_available_queue_families(surface surface, bool forceRefresh)
+	const surface_capabilities& physical_device::get_surface_capabilities(surface _surface, bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
 
-		if (forceRefresh || impl->availableQueueFamilies.empty())
-		{
-			rsl::uint32 queueFamilyCount = 0;
+        if (forceRefresh || !impl->surfaceCapsLoaded)
+        {
+			auto* nativeSurface = get_native_ptr(_surface);
 
-			impl->vkGetPhysicalDeviceQueueFamilyProperties(impl->physicalDevice, &queueFamilyCount, nullptr);
-			if (queueFamilyCount == 0)
-			{
-				std::cout << "Count not query the number of queue families.\n";
-				return {};
-			}
-
-			std::vector<VkQueueFamilyProperties> queueFamiliesBuffer;
-			queueFamiliesBuffer.resize(queueFamilyCount);
-			impl->vkGetPhysicalDeviceQueueFamilyProperties(
-				impl->physicalDevice, &queueFamilyCount, queueFamiliesBuffer.data()
+			VkSurfaceCapabilitiesKHR vkSurfaceCaps;
+			impl->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+				impl->physicalDevice, nativeSurface->surface, &vkSurfaceCaps
 			);
 
-			if (queueFamilyCount == 0)
-			{
-				std::cout << "Could not get queue family properties.\n";
-				return {};
-			}
+            impl->surfaceCaps.minImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.minImageCount);
+			impl->surfaceCaps.maxImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageCount);
+			impl->surfaceCaps.currentExtent =  rsl::math::uint2(vkSurfaceCaps.currentExtent.width, vkSurfaceCaps.currentExtent.height);
+			impl->surfaceCaps.minImageExtent = rsl::math::uint2(vkSurfaceCaps.minImageExtent.width, vkSurfaceCaps.minImageExtent.height);
+			impl->surfaceCaps.maxImageExtent = rsl::math::uint2(vkSurfaceCaps.maxImageExtent.width, vkSurfaceCaps.maxImageExtent.height);
+			impl->surfaceCaps.maxImageArrayLayers = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageArrayLayers);
+			impl->surfaceCaps.supportedTransforms = map_vk_surface_transform_flags(static_cast<VkSurfaceTransformFlagBitsKHR>(vkSurfaceCaps.supportedTransforms));
+			impl->surfaceCaps.currentTransform = map_vk_surface_transform_flags(vkSurfaceCaps.currentTransform);
+			impl->surfaceCaps.supportedCompositeAlpha = map_vk_composite_alpha_flags(static_cast<VkCompositeAlphaFlagBitsKHR>(vkSurfaceCaps.supportedCompositeAlpha));
+			impl->surfaceCaps.supportedUsageFlags = map_vk_image_usage_flags(static_cast<VkImageUsageFlagBits>(vkSurfaceCaps.supportedUsageFlags));
 
-			impl->availableQueueFamilies.clear();
-			impl->availableQueueFamilies.reserve(queueFamilyCount);
+			impl->surfaceCapsLoaded = true;
+        }
 
-			auto* nativeInstance = get_native_ptr(impl->instance);
-
-            bool surfaceCreated = false;
-            if (!surface)
-			{
-				surface = impl->instance.create_surface();
-				surfaceCreated = true;
-			}
-
-			native_surface_vk* nativeSurface = get_native_ptr(surface);
-
-			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
-			{
-				auto& queueFamily = queueFamiliesBuffer[queueFamilyIndex];
-
-				VkBool32 supportsPresent = VK_FALSE;
-
-				if (nativeSurface)
-				{
-					if (nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
-							impl->physicalDevice, queueFamilyIndex, nativeSurface->surface, &supportsPresent
-						) != VK_SUCCESS)
-					{
-						supportsPresent = VK_FALSE;
-					}
-				}
-
-				impl->availableQueueFamilies.push_back({
-					.features = map_vk_queue_features(queueFamily.queueFlags, supportsPresent == VK_TRUE),
-					.queueCount = queueFamily.queueCount,
-					.timestampValidBits = queueFamily.timestampValidBits,
-					.minImageTransferGranularity =
-						rsl::math::uint3{
-										 queueFamily.minImageTransferGranularity.width,
-										 queueFamily.minImageTransferGranularity.height,
-										 queueFamily.minImageTransferGranularity.depth,
-										 },
-				});
-			}
-
-            if (surfaceCreated)
-			{
-				surface.release();
-			}
-		}
-
-		return impl->availableQueueFamilies;
-	}
-
-	bool physical_device::get_queue_family_selection(
-		std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions,
-		surface surface
-	)
-	{
-		for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
-		{
-			queueFamilySelections[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
-		}
-
-		auto queueFamilies = get_available_queue_families(surface);
-
-		for (rsl::size_type queueIndex = 0; queueIndex < queueDesciptions.size(); queueIndex++)
-		{
-			auto& queueDesciption = queueDesciptions[queueIndex];
-			auto& selectionInfo = queueFamilySelections[queueIndex];
-
-			selectionInfo.familyIndex = rsl::npos;
-			for (rsl::size_type familyIndex = 0; familyIndex < queueFamilies.size(); familyIndex++)
-			{
-				auto& queueFamily = queueFamilies[familyIndex];
-
-				if (queueDesciption.queueFamilyIndexOverride != rsl::npos ||
-					!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
-					queueFamily.queueCount == 0)
-				{
-					continue;
-				}
-
-				rsl::size_type score = 1;
-
-				score += queueFamily.queueCount * queueDesciption.queueCountImportance;
-				score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
-
-				if (queueDesciption.imageTransferGranularityImportance != 0ull)
-				{
-					rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
-
-					score += maxScore - rsl::math::min(
-											maxScore, ((queueFamily.minImageTransferGranularity.x +
-														queueFamily.minImageTransferGranularity.y +
-														queueFamily.minImageTransferGranularity.z) /
-													   3u) *
-														  queueDesciption.imageTransferGranularityImportance
-										);
-				}
-
-				if (score > selectionInfo.score)
-				{
-					selectionInfo.familyIndex = familyIndex;
-					selectionInfo.score = score;
-				}
-			}
-
-			if (selectionInfo.familyIndex == rsl::npos)
-			{
-				std::cout << "No compatible queue family found for queue " << queueIndex << '\n';
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	namespace
-	{
-		void map_vk_physical_device_features(physical_device_features& target, const VkPhysicalDeviceFeatures& src)
-		{
-			target.robustBufferAccess = src.robustBufferAccess == VK_TRUE;
-			target.fullDrawIndexUint32 = src.fullDrawIndexUint32 == VK_TRUE;
-			target.imageCubeArray = src.imageCubeArray == VK_TRUE;
-			target.independentBlend = src.independentBlend == VK_TRUE;
-			target.geometryShader = src.geometryShader == VK_TRUE;
-			target.tessellationShader = src.tessellationShader == VK_TRUE;
-			target.sampleRateShading = src.sampleRateShading == VK_TRUE;
-			target.dualSrcBlend = src.dualSrcBlend == VK_TRUE;
-			target.logicOp = src.logicOp == VK_TRUE;
-			target.multiDrawIndirect = src.multiDrawIndirect == VK_TRUE;
-			target.drawIndirectFirstInstance = src.drawIndirectFirstInstance == VK_TRUE;
-			target.depthClamp = src.depthClamp == VK_TRUE;
-			target.depthBiasClamp = src.depthBiasClamp == VK_TRUE;
-			target.fillModeNonSolid = src.fillModeNonSolid == VK_TRUE;
-			target.depthBounds = src.depthBounds == VK_TRUE;
-			target.wideLines = src.wideLines == VK_TRUE;
-			target.largePoints = src.largePoints == VK_TRUE;
-			target.alphaToOne = src.alphaToOne == VK_TRUE;
-			target.multiViewport = src.multiViewport == VK_TRUE;
-			target.samplerAnisotropy = src.samplerAnisotropy == VK_TRUE;
-			target.textureCompressionETC2 = src.textureCompressionETC2 == VK_TRUE;
-			target.textureCompressionASTC_LDR = src.textureCompressionASTC_LDR == VK_TRUE;
-			target.textureCompressionBC = src.textureCompressionBC == VK_TRUE;
-			target.occlusionQueryPrecise = src.occlusionQueryPrecise == VK_TRUE;
-			target.pipelineStatisticsQuery = src.pipelineStatisticsQuery == VK_TRUE;
-			target.vertexPipelineStoresAndAtomics = src.vertexPipelineStoresAndAtomics == VK_TRUE;
-			target.fragmentStoresAndAtomics = src.fragmentStoresAndAtomics == VK_TRUE;
-			target.shaderTessellationAndGeometryPointSize = src.shaderTessellationAndGeometryPointSize == VK_TRUE;
-			target.shaderImageGatherExtended = src.shaderImageGatherExtended == VK_TRUE;
-			target.shaderStorageImageExtendedFormats = src.shaderStorageImageExtendedFormats == VK_TRUE;
-			target.shaderStorageImageMultisample = src.shaderStorageImageMultisample == VK_TRUE;
-			target.shaderStorageImageReadWithoutFormat = src.shaderStorageImageReadWithoutFormat == VK_TRUE;
-			target.shaderStorageImageWriteWithoutFormat = src.shaderStorageImageWriteWithoutFormat == VK_TRUE;
-			target.shaderUniformBufferArrayDynamicIndexing = src.shaderUniformBufferArrayDynamicIndexing == VK_TRUE;
-			target.shaderSampledImageArrayDynamicIndexing = src.shaderSampledImageArrayDynamicIndexing == VK_TRUE;
-			target.shaderStorageBufferArrayDynamicIndexing = src.shaderStorageBufferArrayDynamicIndexing == VK_TRUE;
-			target.shaderStorageImageArrayDynamicIndexing = src.shaderStorageImageArrayDynamicIndexing == VK_TRUE;
-			target.shaderClipDistance = src.shaderClipDistance == VK_TRUE;
-			target.shaderCullDistance = src.shaderCullDistance == VK_TRUE;
-			target.shaderFloat64 = src.shaderFloat64 == VK_TRUE;
-			target.shaderInt64 = src.shaderInt64 == VK_TRUE;
-			target.shaderInt16 = src.shaderInt16 == VK_TRUE;
-			target.shaderResourceResidency = src.shaderResourceResidency == VK_TRUE;
-			target.shaderResourceMinLod = src.shaderResourceMinLod == VK_TRUE;
-			target.sparseBinding = src.sparseBinding == VK_TRUE;
-			target.sparseResidencyBuffer = src.sparseResidencyBuffer == VK_TRUE;
-			target.sparseResidencyImage2D = src.sparseResidencyImage2D == VK_TRUE;
-			target.sparseResidencyImage3D = src.sparseResidencyImage3D == VK_TRUE;
-			target.sparseResidency2Samples = src.sparseResidency2Samples == VK_TRUE;
-			target.sparseResidency4Samples = src.sparseResidency4Samples == VK_TRUE;
-			target.sparseResidency8Samples = src.sparseResidency8Samples == VK_TRUE;
-			target.sparseResidency16Samples = src.sparseResidency16Samples == VK_TRUE;
-			target.sparseResidencyAliased = src.sparseResidencyAliased == VK_TRUE;
-			target.variableMultisampleRate = src.variableMultisampleRate == VK_TRUE;
-			target.inheritedQueries = src.inheritedQueries == VK_TRUE;
-		}
-	} // namespace
-
-	const physical_device_features& physical_device::get_features(bool forceRefresh)
-	{
-		auto* impl = get_native_ptr(*this);
-
-		if (forceRefresh || !impl->featuresLoaded)
-		{
-			VkPhysicalDeviceFeatures features;
-			impl->vkGetPhysicalDeviceFeatures(impl->physicalDevice, &features);
-			map_vk_physical_device_features(impl->features, features);
-
-			impl->featuresLoaded = true;
-		}
-
-		return impl->features;
+        return impl->surfaceCaps;
 	}
 
 	namespace
@@ -1548,28 +1473,7 @@ namespace vk
 			target.residencyAlignedMipSize = src.residencyAlignedMipSize == VK_TRUE;
 			target.residencyNonResidentStrict = src.residencyNonResidentStrict == VK_TRUE;
 		}
-
-
 	} // namespace
-
-	physical_device::operator bool() const noexcept
-	{
-		auto ptr = get_native_ptr(*this);
-		return ptr != nullptr && ptr->physicalDevice != VK_NULL_HANDLE;
-	}
-
-	void physical_device::release()
-	{
-		auto* impl = get_native_ptr(*this);
-
-		if (!impl)
-		{
-			return;
-		}
-
-		m_nativePhysicalDevice = invalid_native_physical_device;
-		delete impl;
-	}
 
 	const physical_device_properties& physical_device::get_properties(bool forceRefresh)
 	{
@@ -1593,6 +1497,293 @@ namespace vk
 		}
 
 		return impl->properties;
+	}
+
+	namespace
+	{
+		void map_vk_physical_device_features(physical_device_features& target, const VkPhysicalDeviceFeatures& src)
+		{
+			target.robustBufferAccess = src.robustBufferAccess == VK_TRUE;
+			target.fullDrawIndexUint32 = src.fullDrawIndexUint32 == VK_TRUE;
+			target.imageCubeArray = src.imageCubeArray == VK_TRUE;
+			target.independentBlend = src.independentBlend == VK_TRUE;
+			target.geometryShader = src.geometryShader == VK_TRUE;
+			target.tessellationShader = src.tessellationShader == VK_TRUE;
+			target.sampleRateShading = src.sampleRateShading == VK_TRUE;
+			target.dualSrcBlend = src.dualSrcBlend == VK_TRUE;
+			target.logicOp = src.logicOp == VK_TRUE;
+			target.multiDrawIndirect = src.multiDrawIndirect == VK_TRUE;
+			target.drawIndirectFirstInstance = src.drawIndirectFirstInstance == VK_TRUE;
+			target.depthClamp = src.depthClamp == VK_TRUE;
+			target.depthBiasClamp = src.depthBiasClamp == VK_TRUE;
+			target.fillModeNonSolid = src.fillModeNonSolid == VK_TRUE;
+			target.depthBounds = src.depthBounds == VK_TRUE;
+			target.wideLines = src.wideLines == VK_TRUE;
+			target.largePoints = src.largePoints == VK_TRUE;
+			target.alphaToOne = src.alphaToOne == VK_TRUE;
+			target.multiViewport = src.multiViewport == VK_TRUE;
+			target.samplerAnisotropy = src.samplerAnisotropy == VK_TRUE;
+			target.textureCompressionETC2 = src.textureCompressionETC2 == VK_TRUE;
+			target.textureCompressionASTC_LDR = src.textureCompressionASTC_LDR == VK_TRUE;
+			target.textureCompressionBC = src.textureCompressionBC == VK_TRUE;
+			target.occlusionQueryPrecise = src.occlusionQueryPrecise == VK_TRUE;
+			target.pipelineStatisticsQuery = src.pipelineStatisticsQuery == VK_TRUE;
+			target.vertexPipelineStoresAndAtomics = src.vertexPipelineStoresAndAtomics == VK_TRUE;
+			target.fragmentStoresAndAtomics = src.fragmentStoresAndAtomics == VK_TRUE;
+			target.shaderTessellationAndGeometryPointSize = src.shaderTessellationAndGeometryPointSize == VK_TRUE;
+			target.shaderImageGatherExtended = src.shaderImageGatherExtended == VK_TRUE;
+			target.shaderStorageImageExtendedFormats = src.shaderStorageImageExtendedFormats == VK_TRUE;
+			target.shaderStorageImageMultisample = src.shaderStorageImageMultisample == VK_TRUE;
+			target.shaderStorageImageReadWithoutFormat = src.shaderStorageImageReadWithoutFormat == VK_TRUE;
+			target.shaderStorageImageWriteWithoutFormat = src.shaderStorageImageWriteWithoutFormat == VK_TRUE;
+			target.shaderUniformBufferArrayDynamicIndexing = src.shaderUniformBufferArrayDynamicIndexing == VK_TRUE;
+			target.shaderSampledImageArrayDynamicIndexing = src.shaderSampledImageArrayDynamicIndexing == VK_TRUE;
+			target.shaderStorageBufferArrayDynamicIndexing = src.shaderStorageBufferArrayDynamicIndexing == VK_TRUE;
+			target.shaderStorageImageArrayDynamicIndexing = src.shaderStorageImageArrayDynamicIndexing == VK_TRUE;
+			target.shaderClipDistance = src.shaderClipDistance == VK_TRUE;
+			target.shaderCullDistance = src.shaderCullDistance == VK_TRUE;
+			target.shaderFloat64 = src.shaderFloat64 == VK_TRUE;
+			target.shaderInt64 = src.shaderInt64 == VK_TRUE;
+			target.shaderInt16 = src.shaderInt16 == VK_TRUE;
+			target.shaderResourceResidency = src.shaderResourceResidency == VK_TRUE;
+			target.shaderResourceMinLod = src.shaderResourceMinLod == VK_TRUE;
+			target.sparseBinding = src.sparseBinding == VK_TRUE;
+			target.sparseResidencyBuffer = src.sparseResidencyBuffer == VK_TRUE;
+			target.sparseResidencyImage2D = src.sparseResidencyImage2D == VK_TRUE;
+			target.sparseResidencyImage3D = src.sparseResidencyImage3D == VK_TRUE;
+			target.sparseResidency2Samples = src.sparseResidency2Samples == VK_TRUE;
+			target.sparseResidency4Samples = src.sparseResidency4Samples == VK_TRUE;
+			target.sparseResidency8Samples = src.sparseResidency8Samples == VK_TRUE;
+			target.sparseResidency16Samples = src.sparseResidency16Samples == VK_TRUE;
+			target.sparseResidencyAliased = src.sparseResidencyAliased == VK_TRUE;
+			target.variableMultisampleRate = src.variableMultisampleRate == VK_TRUE;
+			target.inheritedQueries = src.inheritedQueries == VK_TRUE;
+		}
+	} // namespace
+
+	const physical_device_features& physical_device::get_features(bool forceRefresh)
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (forceRefresh || !impl->featuresLoaded)
+		{
+			VkPhysicalDeviceFeatures features;
+			impl->vkGetPhysicalDeviceFeatures(impl->physicalDevice, &features);
+			map_vk_physical_device_features(impl->features, features);
+
+			impl->featuresLoaded = true;
+		}
+
+		return impl->features;
+	}
+
+	std::span<const extension_properties> physical_device::get_available_extensions(bool forceRefresh)
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (forceRefresh || impl->availableExtensions.empty())
+		{
+			rsl::uint32 extensionCount = 0;
+
+			VkResult result =
+				impl->vkEnumerateDeviceExtensionProperties(impl->physicalDevice, nullptr, &extensionCount, nullptr);
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Count not query the number of device extensions.\n";
+				return {};
+			}
+
+			std::vector<VkExtensionProperties> extensionPropertiesBuffer;
+			extensionPropertiesBuffer.resize(extensionCount);
+			result = impl->vkEnumerateDeviceExtensionProperties(
+				impl->physicalDevice, nullptr, &extensionCount, extensionPropertiesBuffer.data()
+			);
+
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Could not enumerate device extensions.\n";
+				return {};
+			}
+
+			impl->availableExtensions.clear();
+			impl->availableExtensions.reserve(extensionCount);
+			for (auto& extension : extensionPropertiesBuffer)
+			{
+				impl->availableExtensions.push_back({
+					.name = extension.extensionName,
+					.specVersion = decomposeVkVersion(extension.specVersion),
+				});
+			}
+		}
+
+		return impl->availableExtensions;
+	}
+
+	bool physical_device::is_extension_available(std::string_view extensionName)
+	{
+		for (auto& extension : get_available_extensions())
+		{
+			if (extension.name == extensionName)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	namespace
+	{
+		queue_feature_flags map_vk_queue_features(VkQueueFlags features, bool supportsPresent)
+		{
+			return rsl::enum_flags::set_flag(
+				static_cast<queue_feature_flags>(features), queue_feature_flags::present, supportsPresent
+			);
+		}
+	} // namespace
+
+	std::span<const queue_family_properties>
+	physical_device::get_available_queue_families(surface surface, bool forceRefresh)
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (forceRefresh || impl->availableQueueFamilies.empty())
+		{
+			rsl::uint32 queueFamilyCount = 0;
+
+			impl->vkGetPhysicalDeviceQueueFamilyProperties(impl->physicalDevice, &queueFamilyCount, nullptr);
+			if (queueFamilyCount == 0)
+			{
+				std::cout << "Count not query the number of queue families.\n";
+				return {};
+			}
+
+			std::vector<VkQueueFamilyProperties> queueFamiliesBuffer;
+			queueFamiliesBuffer.resize(queueFamilyCount);
+			impl->vkGetPhysicalDeviceQueueFamilyProperties(
+				impl->physicalDevice, &queueFamilyCount, queueFamiliesBuffer.data()
+			);
+
+			if (queueFamilyCount == 0)
+			{
+				std::cout << "Could not get queue family properties.\n";
+				return {};
+			}
+
+			impl->availableQueueFamilies.clear();
+			impl->availableQueueFamilies.reserve(queueFamilyCount);
+
+			auto* nativeInstance = get_native_ptr(impl->instance);
+
+			bool surfaceCreated = false;
+			if (!surface)
+			{
+				surface = impl->instance.create_surface();
+				surfaceCreated = true;
+			}
+
+			native_surface_vk* nativeSurface = get_native_ptr(surface);
+
+			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
+			{
+				auto& queueFamily = queueFamiliesBuffer[queueFamilyIndex];
+
+				VkBool32 supportsPresent = VK_FALSE;
+
+				if (nativeSurface)
+				{
+					if (nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
+							impl->physicalDevice, queueFamilyIndex, nativeSurface->surface, &supportsPresent
+						) != VK_SUCCESS)
+					{
+						supportsPresent = VK_FALSE;
+					}
+				}
+
+				impl->availableQueueFamilies.push_back({
+					.features = map_vk_queue_features(queueFamily.queueFlags, supportsPresent == VK_TRUE),
+					.queueCount = queueFamily.queueCount,
+					.timestampValidBits = queueFamily.timestampValidBits,
+					.minImageTransferGranularity =
+						rsl::math::uint3{
+										 queueFamily.minImageTransferGranularity.width,
+										 queueFamily.minImageTransferGranularity.height,
+										 queueFamily.minImageTransferGranularity.depth,
+										 },
+				});
+			}
+
+			if (surfaceCreated)
+			{
+				surface.release();
+			}
+		}
+
+		return impl->availableQueueFamilies;
+	}
+
+	bool physical_device::get_queue_family_selection(
+		std::span<queue_family_selection> queueFamilySelections, std::span<const queue_description> queueDesciptions,
+		surface surface
+	)
+	{
+		for (rsl::size_type i = 0; i < queueDesciptions.size(); i++)
+		{
+			queueFamilySelections[i].familyIndex = queueDesciptions[i].queueFamilyIndexOverride;
+		}
+
+		auto queueFamilies = get_available_queue_families(surface);
+
+		for (rsl::size_type queueIndex = 0; queueIndex < queueDesciptions.size(); queueIndex++)
+		{
+			auto& queueDesciption = queueDesciptions[queueIndex];
+			auto& selectionInfo = queueFamilySelections[queueIndex];
+
+			selectionInfo.familyIndex = rsl::npos;
+			for (rsl::size_type familyIndex = 0; familyIndex < queueFamilies.size(); familyIndex++)
+			{
+				auto& queueFamily = queueFamilies[familyIndex];
+
+				if (queueDesciption.queueFamilyIndexOverride != rsl::npos ||
+					!rsl::enum_flags::has_all_flags(queueFamily.features, queueDesciption.requiredFeatures) ||
+					queueFamily.queueCount == 0)
+				{
+					continue;
+				}
+
+				rsl::size_type score = 1;
+
+				score += queueFamily.queueCount * queueDesciption.queueCountImportance;
+				score += queueFamily.timestampValidBits * queueDesciption.timestampImportance;
+
+				if (queueDesciption.imageTransferGranularityImportance != 0ull)
+				{
+					rsl::size_type maxScore = 128ull * queueDesciption.imageTransferGranularityImportance;
+
+					score += maxScore - rsl::math::min(
+											maxScore, ((queueFamily.minImageTransferGranularity.x +
+														queueFamily.minImageTransferGranularity.y +
+														queueFamily.minImageTransferGranularity.z) /
+													   3u) *
+														  queueDesciption.imageTransferGranularityImportance
+										);
+				}
+
+				if (score > selectionInfo.score)
+				{
+					selectionInfo.familyIndex = familyIndex;
+					selectionInfo.score = score;
+				}
+			}
+
+			if (selectionInfo.familyIndex == rsl::npos)
+			{
+				std::cout << "No compatible queue family found for queue " << queueIndex << '\n';
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	bool physical_device::in_use() const noexcept

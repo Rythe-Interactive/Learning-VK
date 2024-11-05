@@ -351,6 +351,69 @@ namespace vk
 		rsl::size_type familyIndex = rsl::npos;
 		rsl::size_type score = 0;
 	};
+    
+    enum struct surface_transform_flags : rsl::uint32
+	{
+		identity = 1 << 0,
+		rotate90 = 1 << 1,
+		rotate180 = 1 << 2,
+		rotate270 = 1 << 3,
+		horizontalMirror = 1 << 4,
+		horizontalMirrorRotate90 = 1 << 5,
+		horizontalMirrorRotate180 = 1 << 6,
+		horizontalMirrorRotate270 = 1 << 7,
+		inherit = 1 << 8,
+		maxValue = 0x7FFFFFFF
+	};
+
+    enum struct composite_alpha_flags : rsl::uint32
+	{
+		opaque = 1 << 0,
+		preMultiplied = 1 << 1,
+		postMultiplied = 1 << 2,
+		inherit = 1 << 3,
+		maxValue = 0x7FFFFFFF
+	};
+
+    enum struct image_usage_flags : rsl::uint32
+	{
+		transferSrc = 1 << 0,
+		transferDst = 1 << 1,
+		sampled = 1 << 2,
+		storage = 1 << 3,
+		colorAttachment = 1 << 4,
+		depthStencilAttachment = 1 << 5,
+		transientAttachment = 1 << 6,
+		inputAttachment = 1 << 7,
+		fragmentShadingRateAttachment = 1 << 8,
+		fragmentDensityMap = 1 << 9,
+		videoDecodeDST = 1 << 10,
+		videoDecodeSRC = 1 << 11,
+		videoDecodeDPB = 1 << 12,
+		videoEncodeDST = 1 << 13,
+		videoEncodeSRC = 1 << 14,
+		videoEncodeDPB = 1 << 15,
+		invocationMaskHUAWEI = 1 << 18,
+		attachmentFeedbackLoop = 1 << 19,
+		sampleWeightQCOM = 1 << 20,
+		sampleBlockMatchQCOM = 1 << 21,
+		hostTransfer = 1 << 22,
+		maxValue = 0x7FFFFFFF
+	};
+
+    struct surface_capabilities
+	{
+		rsl::size_type minImageCount;
+		rsl::size_type maxImageCount;
+		rsl::math::uint2 currentExtent;
+		rsl::math::uint2 minImageExtent;
+		rsl::math::uint2 maxImageExtent;
+		rsl::size_type maxImageArrayLayers;
+		surface_transform_flags supportedTransforms;
+		surface_transform_flags currentTransform;
+		composite_alpha_flags supportedCompositeAlpha;
+		image_usage_flags supportedUsageFlags;
+    };
 
 	class physical_device;
 	class render_device;
@@ -409,11 +472,14 @@ namespace vk
 
 		void release();
 
+        const surface_capabilities& get_surface_capabilities(surface _surface, bool forceRefresh = false);
 		const physical_device_properties& get_properties(bool forceRefresh = false);
 		const physical_device_features& get_features(bool forceRefresh = false);
+
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
 		bool is_extension_available(std::string_view extensionName);
-		std::span<const queue_family_properties> get_available_queue_families(surface surface = {}, bool forceRefresh = false);
+
+        std::span<const queue_family_properties> get_available_queue_families(surface surface = {}, bool forceRefresh = false);
 		bool get_queue_family_selection(
 			std::span<queue_family_selection> queueFamilySelections,
 			std::span<const queue_description> queueDesciptions, surface surface = {}
