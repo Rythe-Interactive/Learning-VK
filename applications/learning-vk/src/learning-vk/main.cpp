@@ -5,7 +5,7 @@
 #include "vk/vulkan.hpp"
 
 #if RYTHE_PLATFORM_WINDOWS
-#include <Windows.h>
+	#include <Windows.h>
 
 LRESULT
 Wndproc(
@@ -13,11 +13,11 @@ Wndproc(
 	[[maybe_unused]] LPARAM lparam
 )
 {
-    if (message == WM_CLOSE)
-    {
+	if (message == WM_CLOSE)
+	{
 		PostQuitMessage(NO_ERROR);
 		return NO_ERROR;
-    }
+	}
 
 	return DefWindowProc(window, message, wparam, lparam);
 }
@@ -42,9 +42,9 @@ int wmain()
 
 	std::cout << '\n';
 
-    vk::native_window_handle windowHandle = vk::invalid_native_window_handle;
+	vk::native_window_handle windowHandle = vk::invalid_native_window_handle;
 
-    #if RYTHE_PLATFORM_WINDOWS
+#if RYTHE_PLATFORM_WINDOWS
 	WCHAR CLASS_NAME[] = L"Learning-VK Window Class";
 	HINSTANCE hinstance = GetModuleHandleA(nullptr);
 
@@ -54,11 +54,11 @@ int wmain()
 	wc.hInstance = hinstance;
 	wc.lpszClassName = CLASS_NAME;
 
-    RegisterClassW(&wc);
+	RegisterClassW(&wc);
 
-    HWND hwnd = CreateWindowW(
-		CLASS_NAME, L"Learning-VK", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-		CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, hinstance, nullptr
+	HWND hwnd = CreateWindowW(
+		CLASS_NAME, L"Learning-VK", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+		nullptr, nullptr, hinstance, nullptr
 	);
 
 	ShowWindow(hwnd, SW_SHOWDEFAULT);
@@ -69,8 +69,8 @@ int wmain()
 		.hwnd = hwnd,
 	};
 
-    windowHandle = vk::create_window_handle_win32(windowInfo);
-    #endif
+	windowHandle = vk::create_window_handle_win32(windowInfo);
+#endif
 
 	vk::application_info applicationInfo{
 		.name = "Learning VK",
@@ -102,7 +102,7 @@ int wmain()
 		 },
 	};
 
-    auto surface = instance.create_surface();
+	auto surface = instance.create_surface();
 
 	auto renderDevice = instance.auto_select_and_create_device(deviceDesc, queueDescs, surface);
 
@@ -112,9 +112,10 @@ int wmain()
 		return -1;
 	}
 
+	auto physicalDevice = renderDevice.get_physical_device();
+
 	{
-		auto device = renderDevice.get_physical_device();
-		auto& properties = device.get_properties();
+		auto& properties = physicalDevice.get_properties();
 
 		std::cout << "Device:\n";
 		std::cout << "\tapi version: [" << properties.apiVersion << "]\n";
@@ -124,7 +125,97 @@ int wmain()
 		std::cout << "\tdevice type: " << vk::to_string(properties.deviceType) << "\n";
 		std::cout << "\tdevice name: \"" << properties.deviceName << "\"\n";
 
-		auto& features = device.get_features();
+		auto& surfaceCapabilities = physicalDevice.get_surface_capabilities(surface);
+
+		std::cout << "\tsurface capabilities:\n";
+
+		std::cout << "\t\tminimum image count: " << surfaceCapabilities.minImageCount << '\n';
+		std::cout << "\t\tmaximum image count: " << surfaceCapabilities.maxImageCount << '\n';
+		std::cout << "\t\tcurrent extent:\n";
+		std::cout << "\t\t\twidth: " << surfaceCapabilities.currentExtent.x << '\n';
+		std::cout << "\t\t\theight: " << surfaceCapabilities.currentExtent.y << '\n';
+		std::cout << "\t\tminimum image extent:\n";
+		std::cout << "\t\t\twidth: " << surfaceCapabilities.minImageExtent.x << '\n';
+		std::cout << "\t\t\theight: " << surfaceCapabilities.minImageExtent.y << '\n';
+		std::cout << "\t\tmaximum image extent:\n";
+		std::cout << "\t\t\twidth: " << surfaceCapabilities.maxImageExtent.x << '\n';
+		std::cout << "\t\t\theight: " << surfaceCapabilities.maxImageExtent.y << '\n';
+		std::cout << "\t\tmaximum array layers: " << surfaceCapabilities.maxImageArrayLayers << '\n';
+
+
+#define PRINT_FLAG(flags, flagtype, name)                                                                              \
+	if (rsl::enum_flags::has_flag(surfaceCapabilities.flags, flagtype))                                                \
+	{                                                                                                                  \
+		std::cout << "\t\t\t" name "\n";                                                                               \
+	}
+
+		std::cout << "\t\tsupported transforms:\n";
+		PRINT_FLAG(supportedTransforms, vk::surface_transform_flags::identity, "identity");
+		PRINT_FLAG(supportedTransforms, vk::surface_transform_flags::rotate90, "rotate 90");
+		PRINT_FLAG(supportedTransforms, vk::surface_transform_flags::rotate180, "rotate 180");
+		PRINT_FLAG(supportedTransforms, vk::surface_transform_flags::rotate270, "rotate 270");
+		PRINT_FLAG(supportedTransforms, vk::surface_transform_flags::horizontalMirror, "horizontal mirror");
+		PRINT_FLAG(
+			supportedTransforms, vk::surface_transform_flags::horizontalMirrorRotate90, "horizontal mirror rotate 90"
+		);
+		PRINT_FLAG(
+			supportedTransforms, vk::surface_transform_flags::horizontalMirrorRotate180, "horizontal mirror rotate 180"
+		);
+		PRINT_FLAG(
+			supportedTransforms, vk::surface_transform_flags::horizontalMirrorRotate270, "horizontal mirror rotate 270"
+		);
+		PRINT_FLAG(supportedTransforms, vk::surface_transform_flags::inherit, "inherit");
+
+		std::cout << "\t\tcurrent transform:\n";
+		PRINT_FLAG(currentTransform, vk::surface_transform_flags::identity, "identity");
+		PRINT_FLAG(currentTransform, vk::surface_transform_flags::rotate90, "rotate 90");
+		PRINT_FLAG(currentTransform, vk::surface_transform_flags::rotate180, "rotate 180");
+		PRINT_FLAG(currentTransform, vk::surface_transform_flags::rotate270, "rotate 270");
+		PRINT_FLAG(currentTransform, vk::surface_transform_flags::horizontalMirror, "horizontal mirror");
+		PRINT_FLAG(
+			currentTransform, vk::surface_transform_flags::horizontalMirrorRotate90, "horizontal mirror rotate 90"
+		);
+		PRINT_FLAG(
+			currentTransform, vk::surface_transform_flags::horizontalMirrorRotate180, "horizontal mirror rotate 180"
+		);
+		PRINT_FLAG(
+			currentTransform, vk::surface_transform_flags::horizontalMirrorRotate270, "horizontal mirror rotate 270"
+		);
+		PRINT_FLAG(currentTransform, vk::surface_transform_flags::inherit, "inherit");
+
+		std::cout << "\t\tsupported composite alpha:\n";
+		PRINT_FLAG(supportedCompositeAlpha, vk::composite_alpha_flags::opaque, "opaque");
+		PRINT_FLAG(supportedCompositeAlpha, vk::composite_alpha_flags::preMultiplied, "pre multiplied");
+		PRINT_FLAG(supportedCompositeAlpha, vk::composite_alpha_flags::postMultiplied, "post multiplied");
+		PRINT_FLAG(supportedCompositeAlpha, vk::composite_alpha_flags::inherit, "inherit");
+
+		std::cout << "\t\tsupported image usage:\n";
+
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::transferSrc, "transfer src");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::transferDst, "transfer dst");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::sampled, "sampled");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::storage, "storage");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::colorAttachment, "color attachment");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::depthStencilAttachment, "depth stencil attachment");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::transientAttachment, "transient attachment");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::inputAttachment, "input attachment");
+		PRINT_FLAG(
+			supportedUsageFlags, vk::image_usage_flags::fragmentShadingRateAttachment, "fragment shading rate attachment"
+		);
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::fragmentDensityMap, "fragment density map");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoDecodeDst, "video decode dst");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoDecodeSrc, "video decode src");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoDecodeDpb, "video decode dpb");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoEncodeDst, "video encode dst");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoEncodeSrc, "video encode src");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoEncodeDpb, "video encode dpb");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::invocationMaskHUAWEI, "invocation mask HUAWEI");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::attachmentFeedbackLoop, "attachment feedback loop");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::sampleWeightQCOM, "sample weight QCOM");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::sampleBlockMatchQCOM, "sample block match QCOM");
+		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::hostTransfer, "host transfer");
+
+		auto& features = physicalDevice.get_features();
 
 		std::cout << "\tfeatures:\n";
 #define PRINT_FEATURE(name)                                                                                            \
@@ -196,14 +287,14 @@ int wmain()
 #undef PRINT_FEATURE
 
 		std::cout << "\tavailable extensions:\n";
-		for (auto& extension : device.get_available_extensions())
+		for (auto& extension : physicalDevice.get_available_extensions())
 		{
 			std::cout << "\t\t" << extension.name << " [" << extension.specVersion << "]\n ";
 		}
 
 		std::cout << "\tavailable queue families:\n";
 		rsl::size_type i = 0;
-		for (auto& queueFamily : device.get_available_queue_families())
+		for (auto& queueFamily : physicalDevice.get_available_queue_families())
 		{
 			std::cout << "\t\t" << i << ":\n";
 			std::cout << "\t\t\tallowed operations:\n";
@@ -251,28 +342,28 @@ int wmain()
 	[[maybe_unused]] auto computeQueue = queues[1];
 	[[maybe_unused]] auto transferQueue = queues[2];
 
-    #if RYTHE_PLATFORM_WINDOWS
+#if RYTHE_PLATFORM_WINDOWS
 	MSG message;
 	while (GetMessage(&message, NULL, 0, 0) > 0)
 	{
 		TranslateMessage(&message);
 		DispatchMessage(&message);
 	};
-    #endif
+#endif
 
 	renderDevice.release();
 
-    surface.release();
+	surface.release();
 
 	instance.release();
 
-    vk::release_window_handle(windowHandle);
+	vk::release_window_handle(windowHandle);
 
 	lib.release();
 
-    #if RYTHE_PLATFORM_WINDOWS
+#if RYTHE_PLATFORM_WINDOWS
 	DestroyWindow(hwnd);
-    #endif
+#endif
 
 	std::cout << "Everything fine so far!\n";
 	return 0;

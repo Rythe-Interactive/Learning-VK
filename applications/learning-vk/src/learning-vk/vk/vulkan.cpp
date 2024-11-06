@@ -1284,27 +1284,27 @@ namespace vk
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
 			);
 			result = rsl::enum_flags::set_flag(
-				result, image_usage_flags::videoDecodeDST,
+				result, image_usage_flags::videoDecodeDst,
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR)
 			);
 			result = rsl::enum_flags::set_flag(
-				result, image_usage_flags::videoDecodeSRC,
+				result, image_usage_flags::videoDecodeSrc,
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_DECODE_SRC_BIT_KHR)
 			);
 			result = rsl::enum_flags::set_flag(
-				result, image_usage_flags::videoDecodeDPB,
+				result, image_usage_flags::videoDecodeDpb,
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR)
 			);
 			result = rsl::enum_flags::set_flag(
-				result, image_usage_flags::videoEncodeDST,
+				result, image_usage_flags::videoEncodeDst,
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_ENCODE_DST_BIT_KHR)
 			);
 			result = rsl::enum_flags::set_flag(
-				result, image_usage_flags::videoEncodeSRC,
+				result, image_usage_flags::videoEncodeSrc,
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR)
 			);
 			result = rsl::enum_flags::set_flag(
-				result, image_usage_flags::videoEncodeDPB,
+				result, image_usage_flags::videoEncodeDpb,
 				rsl::enum_flags::has_flag(flags, VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR)
 			);
 			result = rsl::enum_flags::set_flag(
