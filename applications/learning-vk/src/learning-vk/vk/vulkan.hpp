@@ -49,19 +49,15 @@ namespace vk
 
     void release_window_handle(native_window_handle handle);
 
-	bool init();
+	class graphics_library;
 
-	void shut_down();
+	graphics_library init();
 
 	struct extension_properties
 	{
 		std::string name;
 		semver::version specVersion;
 	};
-
-	std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh = false);
-
-	bool is_instance_extension_available(std::string_view extensionName);
 
 	struct application_info
 	{
@@ -70,14 +66,33 @@ namespace vk
 		native_window_handle windowHandle;
 	};
 
-	DECLARE_OPAQUE_HANDLE(native_instance);
-
 	class instance;
 
-	instance create_instance(
-		const application_info& applicationInfo, const semver::version& apiVersion = {1, 0, 0},
-		std::span<rsl::cstring> extensions = {}
-	);
+	DECLARE_OPAQUE_HANDLE(native_graphics_library);
+
+    class graphics_library
+	{
+	public:
+		operator bool() const noexcept;
+
+		void release();
+
+		std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh = false);
+
+		bool is_instance_extension_available(std::string_view extensionName);
+                
+		instance create_instance(
+			const application_info& applicationInfo, const semver::version& apiVersion = {1, 0, 0},
+			std::span<rsl::cstring> extensions = {}
+		);
+
+		rythe_always_inline native_graphics_library get_native_handle() const noexcept { return m_nativeGL; }
+
+	private:
+		native_graphics_library m_nativeGL;
+
+		friend void set_native_handle(graphics_library&, native_graphics_library);
+    };
 
 	struct physical_device_features
 	{
@@ -434,6 +449,8 @@ namespace vk
 
 		friend void set_native_handle(surface&, native_surface);
 	};
+
+	DECLARE_OPAQUE_HANDLE(native_instance);
 
 	class instance
 	{

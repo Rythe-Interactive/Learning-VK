@@ -26,14 +26,16 @@ Wndproc(
 
 int wmain()
 {
-	if (!vk::init())
+	vk::graphics_library lib = vk::init();
+
+	if (!lib)
 	{
 		std::cout << "Failed to initialize vulkan\n";
 		return -1;
 	}
 
 	std::cout << "Available Instance extensions:\n";
-	for (auto& extension : vk::get_available_instance_extensions())
+	for (auto& extension : lib.get_available_instance_extensions())
 	{
 		std::cout << '\t' << extension.name << " [" << extension.specVersion << "]\n";
 	}
@@ -76,7 +78,7 @@ int wmain()
 		.windowHandle = windowHandle,
 	};
 
-	vk::instance instance = vk::create_instance(applicationInfo);
+	vk::instance instance = lib.create_instance(applicationInfo);
 	if (!instance)
 	{
 		return -1;
@@ -266,7 +268,7 @@ int wmain()
 
     vk::release_window_handle(windowHandle);
 
-	vk::shut_down();
+	lib.release();
 
     #if RYTHE_PLATFORM_WINDOWS
 	DestroyWindow(hwnd);

@@ -25,16 +25,6 @@ namespace vk
 {
 	namespace
 	{
-		rsl::dynamic_library vulkanLibrary;
-
-		constexpr rsl::platform_dependent_var vulkanLibName = {
-			rsl::windows_var{"vulkan-1.dll"},
-			rsl::linux_var{"libvulkan.so.1"},
-		};
-
-		std::vector<extension_properties> availableInstanceExtensions;
-		bool libraryIsInitialized = false;
-
 		rythe_always_inline constexpr semver::version decomposeVkVersion(rsl::uint32 vkVersion)
 		{
 			return semver::version{
@@ -43,11 +33,6 @@ namespace vk
 				static_cast<rsl::uint8>(VK_API_VERSION_PATCH(vkVersion)),
 			};
 		}
-
-#define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
-#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
-#include "impl/list_of_vulkan_functions.inl"
-
 	} // namespace
 
 #if RYTHE_PLATFORM_WINDOWS
@@ -121,107 +106,45 @@ namespace vk
 #endif
 	}
 
-	bool init()
-	{
-		if (libraryIsInitialized)
-		{
-			return true;
-		}
-
-		vulkanLibrary = rsl::platform::load_library(vulkanLibName);
-
-		if (!vulkanLibrary)
-		{
-			std::cout << "could not load " << vulkanLibName.get() << '\n';
-			return false;
-		}
-
-#define EXPORTED_VULKAN_FUNCTION(name)                                                                                 \
-	name = vulkanLibrary.get_symbol<PFN_##name>(#name);                                                                \
-	if (!name)                                                                                                         \
-	{                                                                                                                  \
-		std::cout << "Could not load exported Vulkan function \"" #name "\"\n";                                        \
-		return false;                                                                                                  \
-	}
-
-#define GLOBAL_LEVEL_VULKAN_FUNCTION(name)                                                                             \
-	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(nullptr, #name));                                           \
-	if (!name)                                                                                                         \
-	{                                                                                                                  \
-		std::cout << "Could not load global-level Vulkan function \"" #name "\"\n";                                    \
-		return false;                                                                                                  \
-	}
-
-#include "impl/list_of_vulkan_functions.inl"
-
-		libraryIsInitialized = true;
-
-		return true;
-	}
-
-	void shut_down()
-	{
-		libraryIsInitialized = false;
-
-#define EXPORTED_VULKAN_FUNCTION(name) name = nullptr;
-#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) name = nullptr;
-#include "impl/list_of_vulkan_functions.inl"
-
-		vulkanLibrary.release();
-	}
-
-	std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh)
-	{
-		if (forceRefresh || availableInstanceExtensions.empty())
-		{
-			rsl::uint32 extensionCount = 0;
-			VkResult result = vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-			if (result != VK_SUCCESS || extensionCount == 0)
-			{
-				std::cout << "Could not query the number of instance extensions.\n";
-				return {};
-			}
-
-			std::vector<VkExtensionProperties> availableInstanceExtensionsBuffer;
-			availableInstanceExtensionsBuffer.resize(extensionCount);
-			result = vkEnumerateInstanceExtensionProperties(
-				nullptr, &extensionCount, availableInstanceExtensionsBuffer.data()
-			);
-			if (result != VK_SUCCESS || extensionCount == 0)
-			{
-				std::cout << "Could not enumerate instance extensions.\n";
-				return {};
-			}
-
-			availableInstanceExtensions.clear();
-			availableInstanceExtensions.reserve(extensionCount);
-			for (auto& extension : availableInstanceExtensionsBuffer)
-			{
-				availableInstanceExtensions.push_back({
-					.name = extension.extensionName,
-					.specVersion = decomposeVkVersion(extension.specVersion),
-				});
-			}
-		}
-
-		return availableInstanceExtensions;
-	}
-
-	bool is_instance_extension_available(std::string_view extensionName)
-	{
-		for (auto& extension : get_available_instance_extensions())
-		{
-			if (extension.name == extensionName)
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
 	template <typename T>
 	struct native_handle_traits
 	{
+	};
+
+	struct native_graphics_library_vk
+	{
+		rsl::dynamic_library vulkanLibrary;
+		std::vector<extension_properties> availableInstanceExtensions;
+
+#define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
+#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
+#include "impl/list_of_vulkan_functions.inl"
+
+		constexpr static rsl::platform_dependent_var vulkanLibName = {
+			rsl::windows_var{"vulkan-1.dll"},
+			rsl::linux_var{"libvulkan.so.1"},
+		};
+	};
+
+	rythe_always_inline static void set_native_handle(graphics_library& target, native_graphics_library handle)
+	{
+		target.m_nativeGL = handle;
+	}
+
+	template <>
+	struct native_handle_traits<graphics_library>
+	{
+		using native_type = native_graphics_library_vk;
+		using handle_type = native_graphics_library;
+		constexpr static handle_type invalid_handle = invalid_native_graphics_library;
+	};
+
+	template <>
+	struct native_handle_traits<native_graphics_library_vk>
+	{
+		using api_type = graphics_library;
+		using handle_type = native_graphics_library;
+		constexpr static handle_type invalid_handle = invalid_native_graphics_library;
 	};
 
 	struct native_instance_vk
@@ -241,6 +164,7 @@ namespace vk
 		semver::version apiVersion;
 
 		VkInstance instance = VK_NULL_HANDLE;
+		graphics_library graphicsLib;
 	};
 
 	rythe_always_inline static void set_native_handle(instance& target, native_instance handle)
@@ -301,7 +225,7 @@ namespace vk
 
 		render_device renderDevice;
 
-        bool surfaceCapsLoaded = false;
+		bool surfaceCapsLoaded = false;
 		surface_capabilities surfaceCaps;
 		bool featuresLoaded = false;
 		physical_device_features features;
@@ -419,7 +343,116 @@ namespace vk
 		}
 	} // namespace
 
-	instance create_instance(
+	graphics_library init()
+	{
+		native_graphics_library_vk* nativeGL = new native_graphics_library_vk();
+
+		nativeGL->vulkanLibrary = rsl::platform::load_library(native_graphics_library_vk::vulkanLibName);
+
+		if (!nativeGL->vulkanLibrary)
+		{
+			std::cout << "could not load " << native_graphics_library_vk::vulkanLibName.get() << '\n';
+			delete nativeGL;
+			return {};
+		}
+
+#define EXPORTED_VULKAN_FUNCTION(name)                                                                                 \
+	nativeGL->name = nativeGL->vulkanLibrary.get_symbol<PFN_##name>(#name);                                            \
+	if (!nativeGL->name)                                                                                               \
+	{                                                                                                                  \
+		std::cout << "Could not load exported Vulkan function \"" #name "\"\n";                                        \
+		delete nativeGL;                                                                                               \
+		return {};                                                                                                     \
+	}
+
+#define GLOBAL_LEVEL_VULKAN_FUNCTION(name)                                                                             \
+	nativeGL->name = std::bit_cast<PFN_##name>(nativeGL->vkGetInstanceProcAddr(nullptr, #name));                       \
+	if (!nativeGL->name)                                                                                               \
+	{                                                                                                                  \
+		std::cout << "Could not load global-level Vulkan function \"" #name "\"\n";                                    \
+		delete nativeGL;                                                                                               \
+		return {};                                                                                                     \
+	}
+
+#include "impl/list_of_vulkan_functions.inl"
+
+		graphics_library result;
+		set_native_handle(result, create_native_handle(nativeGL));
+
+		return result;
+	}
+
+	graphics_library::operator bool() const noexcept
+	{
+		return get_native_ptr(*this);
+	}
+
+	void graphics_library::release()
+	{
+		auto* impl = get_native_ptr(*this);
+		if (!impl)
+		{
+			return;
+		}
+
+		impl->vulkanLibrary.release();
+
+		m_nativeGL = invalid_native_graphics_library;
+		delete impl;
+	}
+
+	std::span<const extension_properties> graphics_library::get_available_instance_extensions(bool forceRefresh)
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (forceRefresh || impl->availableInstanceExtensions.empty())
+		{
+			rsl::uint32 extensionCount = 0;
+			VkResult result = impl->vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Could not query the number of instance extensions.\n";
+				return {};
+			}
+
+			std::vector<VkExtensionProperties> availableInstanceExtensionsBuffer;
+			availableInstanceExtensionsBuffer.resize(extensionCount);
+			result = impl->vkEnumerateInstanceExtensionProperties(
+				nullptr, &extensionCount, availableInstanceExtensionsBuffer.data()
+			);
+			if (result != VK_SUCCESS || extensionCount == 0)
+			{
+				std::cout << "Could not enumerate instance extensions.\n";
+				return {};
+			}
+
+			impl->availableInstanceExtensions.clear();
+			impl->availableInstanceExtensions.reserve(extensionCount);
+			for (auto& extension : availableInstanceExtensionsBuffer)
+			{
+				impl->availableInstanceExtensions.push_back({
+					.name = extension.extensionName,
+					.specVersion = decomposeVkVersion(extension.specVersion),
+				});
+			}
+		}
+
+		return impl->availableInstanceExtensions;
+	}
+
+	bool graphics_library::is_instance_extension_available(std::string_view extensionName)
+	{
+		for (auto& extension : get_available_instance_extensions())
+		{
+			if (extension.name == extensionName)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	instance graphics_library::create_instance(
 		const application_info& _applicationInfo, const semver::version& apiVersion, std::span<rsl::cstring> extensions
 	)
 	{
@@ -498,8 +531,10 @@ namespace vk
 			.ppEnabledExtensionNames = enabledExtensions.data(),
 		};
 
+		auto* impl = get_native_ptr(*this);
+
 		VkInstance vkInstance = VK_NULL_HANDLE;
-		VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
+		VkResult result = impl->vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
 
 		if (result != VK_SUCCESS || vkInstance == VK_NULL_HANDLE)
 		{
@@ -509,6 +544,7 @@ namespace vk
 
 		native_instance_vk* nativeInstance = new native_instance_vk();
 		nativeInstance->instance = vkInstance;
+		nativeInstance->graphicsLib = *this;
 
 		if (!nativeInstance->load_functions(enabledExtensions))
 		{
@@ -1034,8 +1070,10 @@ namespace vk
 
 	bool native_instance_vk::load_functions([[maybe_unused]] std::span<rsl::cstring> extensions)
 	{
+		auto* lib = get_native_ptr(graphicsLib);
+
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
-	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
+	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                          \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1047,7 +1085,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                  \
+			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                  \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1058,7 +1096,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name)                                                           \
-	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
+	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                          \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1070,7 +1108,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                  \
+			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                  \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1081,7 +1119,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name)                                                                    \
-	name = std::bit_cast<PFN_##name>(vkGetInstanceProcAddr(instance, #name));                                          \
+	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                          \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1298,8 +1336,8 @@ namespace vk
 	{
 		auto* impl = get_native_ptr(*this);
 
-        if (forceRefresh || !impl->surfaceCapsLoaded)
-        {
+		if (forceRefresh || !impl->surfaceCapsLoaded)
+		{
 			auto* nativeSurface = get_native_ptr(_surface);
 
 			VkSurfaceCapabilitiesKHR vkSurfaceCaps;
@@ -1307,21 +1345,29 @@ namespace vk
 				impl->physicalDevice, nativeSurface->surface, &vkSurfaceCaps
 			);
 
-            impl->surfaceCaps.minImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.minImageCount);
+			impl->surfaceCaps.minImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.minImageCount);
 			impl->surfaceCaps.maxImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageCount);
-			impl->surfaceCaps.currentExtent =  rsl::math::uint2(vkSurfaceCaps.currentExtent.width, vkSurfaceCaps.currentExtent.height);
-			impl->surfaceCaps.minImageExtent = rsl::math::uint2(vkSurfaceCaps.minImageExtent.width, vkSurfaceCaps.minImageExtent.height);
-			impl->surfaceCaps.maxImageExtent = rsl::math::uint2(vkSurfaceCaps.maxImageExtent.width, vkSurfaceCaps.maxImageExtent.height);
+			impl->surfaceCaps.currentExtent =
+				rsl::math::uint2(vkSurfaceCaps.currentExtent.width, vkSurfaceCaps.currentExtent.height);
+			impl->surfaceCaps.minImageExtent =
+				rsl::math::uint2(vkSurfaceCaps.minImageExtent.width, vkSurfaceCaps.minImageExtent.height);
+			impl->surfaceCaps.maxImageExtent =
+				rsl::math::uint2(vkSurfaceCaps.maxImageExtent.width, vkSurfaceCaps.maxImageExtent.height);
 			impl->surfaceCaps.maxImageArrayLayers = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageArrayLayers);
-			impl->surfaceCaps.supportedTransforms = map_vk_surface_transform_flags(static_cast<VkSurfaceTransformFlagBitsKHR>(vkSurfaceCaps.supportedTransforms));
+			impl->surfaceCaps.supportedTransforms = map_vk_surface_transform_flags(
+				static_cast<VkSurfaceTransformFlagBitsKHR>(vkSurfaceCaps.supportedTransforms)
+			);
 			impl->surfaceCaps.currentTransform = map_vk_surface_transform_flags(vkSurfaceCaps.currentTransform);
-			impl->surfaceCaps.supportedCompositeAlpha = map_vk_composite_alpha_flags(static_cast<VkCompositeAlphaFlagBitsKHR>(vkSurfaceCaps.supportedCompositeAlpha));
-			impl->surfaceCaps.supportedUsageFlags = map_vk_image_usage_flags(static_cast<VkImageUsageFlagBits>(vkSurfaceCaps.supportedUsageFlags));
+			impl->surfaceCaps.supportedCompositeAlpha = map_vk_composite_alpha_flags(
+				static_cast<VkCompositeAlphaFlagBitsKHR>(vkSurfaceCaps.supportedCompositeAlpha)
+			);
+			impl->surfaceCaps.supportedUsageFlags =
+				map_vk_image_usage_flags(static_cast<VkImageUsageFlagBits>(vkSurfaceCaps.supportedUsageFlags));
 
 			impl->surfaceCapsLoaded = true;
-        }
+		}
 
-        return impl->surfaceCaps;
+		return impl->surfaceCaps;
 	}
 
 	namespace
