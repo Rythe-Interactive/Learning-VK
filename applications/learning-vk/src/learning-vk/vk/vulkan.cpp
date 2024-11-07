@@ -21,6 +21,9 @@
 	#endif
 #endif
 
+#define MAKE_HASHED_STRING_VIEW_LITERAL_IMPL(str) (str##_hsv)
+#define MAKE_HASHED_STRING_VIEW_LITERAL(str) MAKE_HASHED_STRING_VIEW_LITERAL_IMPL(str)
+
 namespace vk
 {
 	namespace
@@ -431,7 +434,7 @@ namespace vk
 			for (auto& extension : availableInstanceExtensionsBuffer)
 			{
 				impl->availableInstanceExtensions.push_back({
-					.name = extension.extensionName,
+					.name = rsl::hashed_string(extension.extensionName),
 					.specVersion = decomposeVkVersion(extension.specVersion),
 				});
 			}
@@ -440,7 +443,7 @@ namespace vk
 		return impl->availableInstanceExtensions;
 	}
 
-	bool graphics_library::is_instance_extension_available(std::string_view extensionName)
+	bool graphics_library::is_instance_extension_available(rsl::hashed_string_view extensionName)
 	{
 		for (auto& extension : get_available_instance_extensions())
 		{
@@ -453,31 +456,32 @@ namespace vk
 	}
 
 	instance graphics_library::create_instance(
-		const application_info& _applicationInfo, const semver::version& apiVersion, std::span<rsl::cstring> extensions
+		const application_info& _applicationInfo, const semver::version& apiVersion,
+		std::span<const rsl::hashed_string> extensions
 	)
 	{
+        using namespace rsl::hashed_string_literals;
 		std::vector<rsl::cstring> enabledExtensions;
 		bool surfaceExtensionActive = false;
 		bool platformSurfaceExtensionActive = false;
 		for (auto& extensionName : extensions)
 		{
-			auto nameView = std::string_view(extensionName);
-			if (!is_instance_extension_available(nameView))
+			if (!is_instance_extension_available(extensionName))
 			{
 				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
 			}
 			else
 			{
-				if (nameView == VK_KHR_SURFACE_EXTENSION_NAME)
+				if (extensionName == MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SURFACE_EXTENSION_NAME))
 				{
 					surfaceExtensionActive = true;
 				}
-				else if (nameView == VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME)
+				else if (extensionName == MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME))
 				{
 					platformSurfaceExtensionActive = true;
 				}
 
-				enabledExtensions.push_back(extensionName);
+				enabledExtensions.push_back(extensionName.c_str());
 			}
 		}
 
@@ -891,9 +895,10 @@ namespace vk
 
 	render_device instance::auto_select_and_create_device(
 		const physical_device_description& physicalDeviceDescription,
-		std::span<const queue_description> queueDesciptions, surface surface, std::span<rsl::cstring> extensions
+		std::span<const queue_description> queueDesciptions, surface surface, std::span<const rsl::hashed_string> extensions
 	)
 	{
+        using namespace rsl::hashed_string_literals;
 		using namespace semver::literals;
 		const bool supportsProtectedMemory = get_api_version() >= "1.1.0"_version;
 
@@ -910,16 +915,20 @@ namespace vk
 		bool presentingApplication = get_application_info().windowHandle != invalid_native_window_handle;
 
 		std::vector<rsl::cstring> enabledExtensions;
+		std::vector<rsl::id_type> enabledExtensionHashes;
 		enabledExtensions.reserve(extensions.size() + (presentingApplication ? 1 : 0));
+		enabledExtensionHashes.reserve(enabledExtensions.size());
 
 		bool swapchainExtensionPresent = false;
 
+        constexpr auto swapchainExtensionName = MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
 		for (auto& extensionName : extensions)
 		{
-			std::string_view extensionNameView = extensionName;
-			enabledExtensions.push_back(extensionName);
+			enabledExtensions.push_back(extensionName.c_str());
+			enabledExtensionHashes.push_back(extensionName.value);
 
-			if (presentingApplication && extensionNameView == VK_KHR_SWAPCHAIN_EXTENSION_NAME)
+			if (presentingApplication && extensionName == swapchainExtensionName)
 			{
 				swapchainExtensionPresent = true;
 			}
@@ -927,7 +936,8 @@ namespace vk
 
 		if (presentingApplication && !swapchainExtensionPresent)
 		{
-			enabledExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+			enabledExtensions.push_back(swapchainExtensionName.data());
+			enabledExtensionHashes.push_back(swapchainExtensionName.value);
 		}
 
 		if (!presentingApplication && swapchainExtensionPresent)
@@ -1023,9 +1033,13 @@ namespace vk
 
 #undef CHECK_FEATURE
 
-			for (auto& extensionName : enabledExtensions)
+			for (rsl::size_type i = 0; i < enabledExtensions.size(); i++)
 			{
-				if (!device.is_extension_available(extensionName))
+				rsl::hashed_string_view hashStrView;
+				hashStrView.str = enabledExtensions[i];
+				hashStrView.value = enabledExtensionHashes[i];
+
+				if (!device.is_extension_available(hashStrView))
 				{
 					continue;
 				}
@@ -1655,8 +1669,8 @@ namespace vk
 			impl->availableExtensions.reserve(extensionCount);
 			for (auto& extension : extensionPropertiesBuffer)
 			{
-				impl->availableExtensions.push_back({
-					.name = extension.extensionName,
+				impl->availableExtensions.push_back(extension_properties{
+					.name = rsl::hashed_string(extension.extensionName),
 					.specVersion = decomposeVkVersion(extension.specVersion),
 				});
 			}
@@ -1665,7 +1679,7 @@ namespace vk
 		return impl->availableExtensions;
 	}
 
-	bool physical_device::is_extension_available(std::string_view extensionName)
+	bool physical_device::is_extension_available(rsl::hashed_string_view extensionName)
 	{
 		for (auto& extension : get_available_extensions())
 		{
@@ -1838,9 +1852,11 @@ namespace vk
 	}
 
 	render_device physical_device::create_render_device(
-		std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions
+		std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions
 	)
 	{
+        using namespace rsl::hashed_string_literals;
+
 		auto* impl = get_native_ptr(*this);
 
 		bool presentingApplication = impl->instance.get_application_info().windowHandle != invalid_native_window_handle;
@@ -1852,17 +1868,16 @@ namespace vk
 
 		for (auto& extensionName : extensions)
 		{
-			std::string_view extensionNameView = extensionName;
-			if (is_extension_available(extensionNameView))
+			if (is_extension_available(extensionName))
 			{
-				enabledExtensions.push_back(extensionName);
+				enabledExtensions.push_back(extensionName.c_str());
 			}
 			else
 			{
-				std::cout << "Extension \"" << extensionNameView << "\" is not available.\n";
+				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
 			}
 
-			if (presentingApplication && extensionNameView == VK_KHR_SWAPCHAIN_EXTENSION_NAME)
+			if (presentingApplication && extensionName == MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
 			{
 				swapchainExtensionPresent = true;
 			}

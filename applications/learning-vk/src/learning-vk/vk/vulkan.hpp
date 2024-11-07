@@ -3,6 +3,7 @@
 #include <rsl/math>
 #include <rsl/platform>
 #include <rsl/primitives>
+#include <rsl/hashed_string>
 
 #include <semver/semver.hpp>
 #include <span>
@@ -20,11 +21,11 @@ namespace vk
 	DECLARE_OPAQUE_HANDLE(native_window_handle);
 
 #if RYTHE_PLATFORM_WINDOWS
-    struct native_window_info_win32
-    {
+	struct native_window_info_win32
+	{
 		HINSTANCE hinstance;
 		HWND hwnd;
-    };
+	};
 
 	native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo);
 #elif RYTHE_PLATFORM_LINUX
@@ -47,7 +48,7 @@ namespace vk
 	#endif
 #endif
 
-    void release_window_handle(native_window_handle handle);
+	void release_window_handle(native_window_handle handle);
 
 	class graphics_library;
 
@@ -55,7 +56,7 @@ namespace vk
 
 	struct extension_properties
 	{
-		std::string name;
+		rsl::hashed_string name;
 		semver::version specVersion;
 	};
 
@@ -70,7 +71,7 @@ namespace vk
 
 	DECLARE_OPAQUE_HANDLE(native_graphics_library);
 
-    class graphics_library
+	class graphics_library
 	{
 	public:
 		operator bool() const noexcept;
@@ -79,11 +80,11 @@ namespace vk
 
 		std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh = false);
 
-		bool is_instance_extension_available(std::string_view extensionName);
-                
+		bool is_instance_extension_available(rsl::hashed_string_view extensionName);
+				
 		instance create_instance(
 			const application_info& applicationInfo, const semver::version& apiVersion = {1, 0, 0},
-			std::span<rsl::cstring> extensions = {}
+			std::span<const rsl::hashed_string> extensions = {}
 		);
 
 		rythe_always_inline native_graphics_library get_native_handle() const noexcept { return m_nativeGL; }
@@ -92,7 +93,7 @@ namespace vk
 		native_graphics_library m_nativeGL;
 
 		friend void set_native_handle(graphics_library&, native_graphics_library);
-    };
+	};
 
 	struct physical_device_features
 	{
@@ -366,8 +367,8 @@ namespace vk
 		rsl::size_type familyIndex = rsl::npos;
 		rsl::size_type score = 0;
 	};
-    
-    enum struct surface_transform_flags : rsl::uint32
+	
+	enum struct surface_transform_flags : rsl::uint32
 	{
 		identity = 1 << 0,
 		rotate90 = 1 << 1,
@@ -381,7 +382,7 @@ namespace vk
 		maxValue = 0x7FFFFFFF
 	};
 
-    enum struct composite_alpha_flags : rsl::uint32
+	enum struct composite_alpha_flags : rsl::uint32
 	{
 		opaque = 1 << 0,
 		preMultiplied = 1 << 1,
@@ -390,7 +391,7 @@ namespace vk
 		maxValue = 0x7FFFFFFF
 	};
 
-    enum struct image_usage_flags : rsl::uint32
+	enum struct image_usage_flags : rsl::uint32
 	{
 		transferSrc = 1 << 0,
 		transferDst = 1 << 1,
@@ -416,7 +417,7 @@ namespace vk
 		maxValue = 0x7FFFFFFF
 	};
 
-    struct surface_capabilities
+	struct surface_capabilities
 	{
 		rsl::size_type minImageCount;
 		rsl::size_type maxImageCount;
@@ -428,7 +429,7 @@ namespace vk
 		surface_transform_flags currentTransform;
 		composite_alpha_flags supportedCompositeAlpha;
 		image_usage_flags supportedUsageFlags;
-    };
+	};
 
 	class physical_device;
 	class render_device;
@@ -465,11 +466,12 @@ namespace vk
 		const application_info& get_application_info() const noexcept;
 		const semver::version& get_api_version() const noexcept;
 
-        surface create_surface();
+		surface create_surface();
 
 		render_device auto_select_and_create_device(
 			const physical_device_description& physicalDeviceDescription,
-			std::span<const queue_description> queueDesciptions, surface surface = {}, std::span<rsl::cstring> extensions = {}
+			std::span<const queue_description> queueDesciptions, surface surface = {},
+			std::span<const rsl::hashed_string> extensions = {}
 		);
 
 		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
@@ -489,14 +491,14 @@ namespace vk
 
 		void release();
 
-        const surface_capabilities& get_surface_capabilities(surface _surface, bool forceRefresh = false);
+		const surface_capabilities& get_surface_capabilities(surface _surface, bool forceRefresh = false);
 		const physical_device_properties& get_properties(bool forceRefresh = false);
 		const physical_device_features& get_features(bool forceRefresh = false);
 
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
-		bool is_extension_available(std::string_view extensionName);
+		bool is_extension_available(rsl::hashed_string_view extensionName);
 
-        std::span<const queue_family_properties> get_available_queue_families(surface surface = {}, bool forceRefresh = false);
+		std::span<const queue_family_properties> get_available_queue_families(surface surface = {}, bool forceRefresh = false);
 		bool get_queue_family_selection(
 			std::span<queue_family_selection> queueFamilySelections,
 			std::span<const queue_description> queueDesciptions, surface surface = {}
@@ -505,7 +507,7 @@ namespace vk
 		bool in_use() const noexcept;
 
 		render_device create_render_device(
-			std::span<const queue_description> queueDesciptions, std::span<rsl::cstring> extensions = {}
+			std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions = {}
 		);
 
 		rythe_always_inline native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
