@@ -37,7 +37,7 @@ int wmain()
 	std::cout << "Available Instance extensions:\n";
 	for (auto& extension : lib.get_available_instance_extensions())
 	{
-		std::cout << '\t' << extension.name << " [" << extension.specVersion << "]\n";
+		std::cout << '\t' << extension.name.c_str() << " [" << extension.specVersion << "]\n";
 	}
 
 	std::cout << '\n';
@@ -289,7 +289,7 @@ int wmain()
 		std::cout << "\tavailable extensions:\n";
 		for (auto& extension : physicalDevice.get_available_extensions())
 		{
-			std::cout << "\t\t" << extension.name << " [" << extension.specVersion << "]\n ";
+			std::cout << "\t\t" << extension.name.c_str() << " [" << extension.specVersion << "]\n ";
 		}
 
 		std::cout << "\tavailable queue families:\n";
