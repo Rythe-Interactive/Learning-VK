@@ -117,6 +117,7 @@ namespace vk
 	struct native_graphics_library_vk
 	{
 		rsl::dynamic_library vulkanLibrary;
+		std::vector<layer_properties> availableInstanceLayers;
 		std::vector<extension_properties> availableInstanceExtensions;
 
 #define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
@@ -404,6 +405,57 @@ namespace vk
 		delete impl;
 	}
 
+	std::span<const layer_properties> graphics_library::get_available_instance_layers(bool forceRefresh)
+	{
+		auto* impl = get_native_ptr(*this);
+
+		if (forceRefresh || impl->availableInstanceLayers.empty())
+		{
+			rsl::uint32 layerCount = 0;
+			VkResult result = impl->vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+			if (result != VK_SUCCESS || layerCount == 0)
+			{
+				std::cout << "Could not query the number of instance layers.\n";
+				return {};
+			}
+
+			std::vector<VkLayerProperties> availableInstanceLayersBuffer;
+			availableInstanceLayersBuffer.resize(layerCount);
+			result = impl->vkEnumerateInstanceLayerProperties(&layerCount, availableInstanceLayersBuffer.data());
+			if (result != VK_SUCCESS || layerCount == 0)
+			{
+				std::cout << "Could not enumerate instance layers.\n";
+				return {};
+			}
+
+			impl->availableInstanceLayers.clear();
+			impl->availableInstanceLayers.reserve(layerCount);
+			for (auto& layer : availableInstanceLayersBuffer)
+			{
+				impl->availableInstanceLayers.push_back({
+					.name = rsl::hashed_string(layer.layerName),
+					.specVersion = decomposeVkVersion(layer.specVersion),
+					.implementationVersion = decomposeVkVersion(layer.implementationVersion),
+					.description = std::string(layer.description),
+				});
+			}
+		}
+
+		return impl->availableInstanceLayers;
+	}
+
+	bool graphics_library::is_instance_layer_available(rsl::hashed_string_view layerName)
+	{
+		for (auto& layer : get_available_instance_layers())
+		{
+			if (layer.name == layerName)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	std::span<const extension_properties> graphics_library::get_available_instance_extensions(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
@@ -457,18 +509,51 @@ namespace vk
 
 	instance graphics_library::create_instance(
 		const application_info& _applicationInfo, const semver::version& apiVersion,
-		std::span<const rsl::hashed_string> extensions
+		std::span<const rsl::hashed_string> layers, std::span<const rsl::hashed_string> extensions
 	)
 	{
-        using namespace rsl::hashed_string_literals;
+		using namespace rsl::hashed_string_literals;
+
+		std::vector<rsl::cstring> enabledLayers;
+		enabledLayers.reserve(layers.size());
+#ifdef RYTHE_DEBUG
+		bool khrValidationLayerActive = false;
+#endif
+		for (auto& layerName : layers)
+		{
+			if (!is_instance_layer_available(layerName))
+			{
+				std::cout << "Layer \"" << layerName.c_str() << "\" is not available.\n";
+			}
+			else
+			{
+#ifdef RYTHE_DEBUG
+				if (layerName == "VK_LAYER_KHRONOS_validation"_hsv)
+				{
+					khrValidationLayerActive = true;
+				}
+#endif
+				enabledLayers.push_back(layerName.c_str());
+			}
+		}
+
+#ifdef RYTHE_DEBUG
+		if (!khrValidationLayerActive)
+		{
+			enabledLayers.push_back("VK_LAYER_KHRONOS_validation");
+		}
+#endif // RYTHE_DEBUG
+
+
 		std::vector<rsl::cstring> enabledExtensions;
+		enabledExtensions.reserve(extensions.size());
 		bool surfaceExtensionActive = false;
 		bool platformSurfaceExtensionActive = false;
 		for (auto& extensionName : extensions)
 		{
 			if (!is_instance_extension_available(extensionName))
 			{
-				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
+				std::cout << "Extension \"" << extensionName.c_str() << "\" is not available.\n";
 			}
 			else
 			{
@@ -529,8 +614,8 @@ namespace vk
 			.pNext = nullptr,
 			.flags = 0,
 			.pApplicationInfo = &applicationInfo,
-			.enabledLayerCount = 0,
-			.ppEnabledLayerNames = nullptr,
+			.enabledLayerCount = static_cast<rsl::uint32>(enabledLayers.size()),
+			.ppEnabledLayerNames = enabledLayers.data(),
 			.enabledExtensionCount = static_cast<rsl::uint32>(enabledExtensions.size()),
 			.ppEnabledExtensionNames = enabledExtensions.data(),
 		};
@@ -895,10 +980,11 @@ namespace vk
 
 	render_device instance::auto_select_and_create_device(
 		const physical_device_description& physicalDeviceDescription,
-		std::span<const queue_description> queueDesciptions, surface surface, std::span<const rsl::hashed_string> extensions
+		std::span<const queue_description> queueDesciptions, surface surface,
+		std::span<const rsl::hashed_string> extensions
 	)
 	{
-        using namespace rsl::hashed_string_literals;
+		using namespace rsl::hashed_string_literals;
 		using namespace semver::literals;
 		const bool supportsProtectedMemory = get_api_version() >= "1.1.0"_version;
 
@@ -921,7 +1007,7 @@ namespace vk
 
 		bool swapchainExtensionPresent = false;
 
-        constexpr auto swapchainExtensionName = MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		constexpr auto swapchainExtensionName = MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
 		for (auto& extensionName : extensions)
 		{
@@ -1087,7 +1173,7 @@ namespace vk
 		auto* lib = get_native_ptr(graphicsLib);
 
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
-	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                          \
+	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                     \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1099,7 +1185,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                  \
+			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                             \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1110,7 +1196,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name)                                                           \
-	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                          \
+	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                     \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1122,7 +1208,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                  \
+			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                             \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1133,7 +1219,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name)                                                                    \
-	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                          \
+	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                     \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1855,7 +1941,7 @@ namespace vk
 		std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions
 	)
 	{
-        using namespace rsl::hashed_string_literals;
+		using namespace rsl::hashed_string_literals;
 
 		auto* impl = get_native_ptr(*this);
 
@@ -1877,7 +1963,8 @@ namespace vk
 				std::cout << "Extension \"" << extensionName << "\" is not available.\n";
 			}
 
-			if (presentingApplication && extensionName == MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+			if (presentingApplication &&
+				extensionName == MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
 			{
 				swapchainExtensionPresent = true;
 			}

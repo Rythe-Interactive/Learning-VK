@@ -67,6 +67,14 @@ namespace vk
 		native_window_handle windowHandle;
 	};
 
+	struct layer_properties
+	{
+		rsl::hashed_string name;
+		semver::version specVersion;
+		semver::version implementationVersion;
+		std::string description;
+	};
+
 	class instance;
 
 	DECLARE_OPAQUE_HANDLE(native_graphics_library);
@@ -78,12 +86,15 @@ namespace vk
 
 		void release();
 
-		std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh = false);
+		std::span<const layer_properties> get_available_instance_layers(bool forceRefresh = false);
+		bool is_instance_layer_available(rsl::hashed_string_view layerName);
 
+		std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh = false);
 		bool is_instance_extension_available(rsl::hashed_string_view extensionName);
 				
 		instance create_instance(
 			const application_info& applicationInfo, const semver::version& apiVersion = {1, 0, 0},
+			std::span<const rsl::hashed_string> layers = {},
 			std::span<const rsl::hashed_string> extensions = {}
 		);
 

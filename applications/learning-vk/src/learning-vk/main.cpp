@@ -34,6 +34,15 @@ int wmain()
 		return -1;
 	}
 
+	std::cout << "Available Instance layers:\n";
+	for (auto& layer : lib.get_available_instance_layers())
+	{
+		std::cout << '\t' << layer.name.c_str() << " [" << layer.specVersion << "] [" << layer.implementationVersion
+				  << "]\n\t\t" << layer.description << "\n";
+	}
+
+	std::cout << '\n';
+
 	std::cout << "Available Instance extensions:\n";
 	for (auto& extension : lib.get_available_instance_extensions())
 	{
@@ -88,17 +97,17 @@ int wmain()
 
 	vk::queue_description queueDescs[] = {
 		{
-         .priority = vk::queue_priority::high,
-         .requiredFeatures = vk::queue_feature_flags::graphics,
+		 .priority = vk::queue_priority::high,
+		 .requiredFeatures = vk::queue_feature_flags::graphics,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::compute,
+		 .requiredFeatures = vk::queue_feature_flags::compute,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::transfer,
+		 .requiredFeatures = vk::queue_feature_flags::transfer,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::present,
+		 .requiredFeatures = vk::queue_feature_flags::present,
 		 },
 	};
 
@@ -200,7 +209,8 @@ int wmain()
 		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::transientAttachment, "transient attachment");
 		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::inputAttachment, "input attachment");
 		PRINT_FLAG(
-			supportedUsageFlags, vk::image_usage_flags::fragmentShadingRateAttachment, "fragment shading rate attachment"
+			supportedUsageFlags, vk::image_usage_flags::fragmentShadingRateAttachment,
+			"fragment shading rate attachment"
 		);
 		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::fragmentDensityMap, "fragment density map");
 		PRINT_FLAG(supportedUsageFlags, vk::image_usage_flags::videoDecodeDst, "video decode dst");
