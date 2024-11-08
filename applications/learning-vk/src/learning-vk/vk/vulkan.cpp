@@ -153,7 +153,7 @@ namespace vk
 
 	struct native_instance_vk
 	{
-		bool load_functions(std::span<rsl::cstring> extensions);
+		bool load_functions(std::span<const rsl::cstring> extensions);
 
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name = nullptr;
@@ -166,6 +166,9 @@ namespace vk
 		std::vector<physical_device> physicalDevices;
 		application_info applicationInfo;
 		semver::version apiVersion;
+
+		std::vector<layer_properties> enabledLayers;
+		std::vector<extension_properties> enabledExtensions;
 
 		VkInstance instance = VK_NULL_HANDLE;
 		graphics_library graphicsLib;
@@ -235,6 +238,7 @@ namespace vk
 		physical_device_features features;
 		bool propertiesLoaded = false;
 		physical_device_properties properties;
+		std::vector<layer_properties> availableLayers;
 		std::vector<extension_properties> availableExtensions;
 		std::vector<queue_family_properties> availableQueueFamilies;
 
@@ -266,7 +270,7 @@ namespace vk
 
 	struct native_render_device_vk
 	{
-		bool load_functions(std::span<rsl::cstring> extensions);
+		bool load_functions(std::span<const rsl::cstring> extensions);
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define DEVICE_LEVEL_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
@@ -405,6 +409,36 @@ namespace vk
 		delete impl;
 	}
 
+	namespace
+	{
+		rythe_always_inline constexpr rsl::size_type
+		get_layer_index(std::span<const layer_properties> layers, rsl::hashed_string_view layerName) noexcept
+		{
+			for (rsl::size_type i = 0; i < layers.size(); i++)
+			{
+				if (layers[i].name == layerName)
+				{
+					return i;
+				}
+			}
+			return rsl::npos;
+		}
+
+		rythe_always_inline constexpr rsl::size_type get_extension_index(
+			std::span<const extension_properties> extensions, rsl::hashed_string_view extensionName
+		) noexcept
+		{
+			for (rsl::size_type i = 0; i < extensions.size(); i++)
+			{
+				if (extensions[i].name == extensionName)
+				{
+					return i;
+				}
+			}
+			return rsl::npos;
+		}
+	} // namespace
+
 	std::span<const layer_properties> graphics_library::get_available_instance_layers(bool forceRefresh)
 	{
 		auto* impl = get_native_ptr(*this);
@@ -446,14 +480,7 @@ namespace vk
 
 	bool graphics_library::is_instance_layer_available(rsl::hashed_string_view layerName)
 	{
-		for (auto& layer : get_available_instance_layers())
-		{
-			if (layer.name == layerName)
-			{
-				return true;
-			}
-		}
-		return false;
+		return get_layer_index(get_available_instance_layers(), layerName) != rsl::npos;
 	}
 
 	std::span<const extension_properties> graphics_library::get_available_instance_extensions(bool forceRefresh)
@@ -497,14 +524,7 @@ namespace vk
 
 	bool graphics_library::is_instance_extension_available(rsl::hashed_string_view extensionName)
 	{
-		for (auto& extension : get_available_instance_extensions())
-		{
-			if (extension.name == extensionName)
-			{
-				return true;
-			}
-		}
-		return false;
+		return get_extension_index(get_available_instance_extensions(), extensionName) != rsl::npos;
 	}
 
 	instance graphics_library::create_instance(
@@ -514,14 +534,20 @@ namespace vk
 	{
 		using namespace rsl::hashed_string_literals;
 
+		std::vector<layer_properties> enabledLayerProperties;
 		std::vector<rsl::cstring> enabledLayers;
+		enabledLayerProperties.reserve(layers.size());
 		enabledLayers.reserve(layers.size());
+
 #ifdef RYTHE_DEBUG
 		bool khrValidationLayerActive = false;
-#endif
+#endif // RYTHE_DEBUG
+
+		auto availableLayers = get_available_instance_layers();
 		for (auto& layerName : layers)
 		{
-			if (!is_instance_layer_available(layerName))
+			rsl::size_type layerIndex = get_layer_index(availableLayers, layerName);
+			if (layerIndex == rsl::npos)
 			{
 				std::cout << "Layer \"" << layerName.c_str() << "\" is not available.\n";
 			}
@@ -532,7 +558,9 @@ namespace vk
 				{
 					khrValidationLayerActive = true;
 				}
-#endif
+#endif // RYTHE_DEBUG
+
+				enabledLayerProperties.push_back(availableLayers[layerIndex]);
 				enabledLayers.push_back(layerName.c_str());
 			}
 		}
@@ -540,18 +568,29 @@ namespace vk
 #ifdef RYTHE_DEBUG
 		if (!khrValidationLayerActive)
 		{
+			enabledLayerProperties.push_back(
+				availableLayers[get_layer_index(availableLayers, "VK_LAYER_KHRONOS_validation"_hsv)]
+			);
 			enabledLayers.push_back("VK_LAYER_KHRONOS_validation");
 		}
 #endif // RYTHE_DEBUG
 
-
+		std::vector<extension_properties> enabledExtensionProperties;
 		std::vector<rsl::cstring> enabledExtensions;
+		enabledExtensionProperties.reserve(extensions.size());
 		enabledExtensions.reserve(extensions.size());
+
 		bool surfaceExtensionActive = false;
 		bool platformSurfaceExtensionActive = false;
+#ifdef RYTHE_DEBUG
+		bool debugUtilsExtensionActive = false;
+#endif // RYTHE_DEBUG
+
+		auto availableExtensions = get_available_instance_extensions();
 		for (auto& extensionName : extensions)
 		{
-			if (!is_instance_extension_available(extensionName))
+			rsl::size_type extensionIndex = get_extension_index(availableExtensions, extensionName);
+			if (extensionIndex == rsl::npos)
 			{
 				std::cout << "Extension \"" << extensionName.c_str() << "\" is not available.\n";
 			}
@@ -565,20 +604,43 @@ namespace vk
 				{
 					platformSurfaceExtensionActive = true;
 				}
+#ifdef RYTHE_DEBUG
+				else if (extensionName == MAKE_HASHED_STRING_VIEW_LITERAL(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+				{
+					debugUtilsExtensionActive = true;
+				}
+#endif // RYTHE_DEBUG
 
+				enabledExtensionProperties.push_back(availableExtensions[extensionIndex]);
 				enabledExtensions.push_back(extensionName.c_str());
 			}
 		}
+
+#ifdef RYTHE_DEBUG
+		if (!debugUtilsExtensionActive)
+		{
+			enabledExtensionProperties.push_back(availableExtensions[get_extension_index(
+				availableExtensions, MAKE_HASHED_STRING_VIEW_LITERAL(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+			)]);
+			enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		}
+#endif // RYTHE_DEBUG
 
 		if (_applicationInfo.windowHandle != invalid_native_window_handle)
 		{
 			if (!surfaceExtensionActive)
 			{
+				enabledExtensionProperties.push_back(availableExtensions[get_extension_index(
+					availableExtensions, MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_SURFACE_EXTENSION_NAME)
+				)]);
 				enabledExtensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
 			}
 
 			if (!platformSurfaceExtensionActive)
 			{
+				enabledExtensionProperties.push_back(availableExtensions[get_extension_index(
+					availableExtensions, MAKE_HASHED_STRING_VIEW_LITERAL(VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME)
+				)]);
 				enabledExtensions.push_back(VK_KHR_PLATFORM_SURFACE_EXTENSION_NAME);
 			}
 		}
@@ -648,6 +710,8 @@ namespace vk
 
 		nativeInstance->applicationInfo = _applicationInfo;
 		nativeInstance->apiVersion = apiVersion;
+		nativeInstance->enabledLayers = std::move(enabledLayerProperties);
+		nativeInstance->enabledExtensions = std::move(enabledExtensionProperties);
 
 		vk::instance instance;
 		set_native_handle(instance, create_native_handle(nativeInstance));
@@ -779,7 +843,7 @@ namespace vk
 
 		render_device create_render_device_no_extension_check(
 			physical_device& physicalDevice, std::span<const queue_description> queueDesciptions,
-			std::span<rsl::cstring> extensions
+			std::span<const rsl::cstring> extensions, std::span<const rsl::cstring> layers
 		)
 		{
 			auto* impl = get_native_ptr(physicalDevice);
@@ -841,8 +905,8 @@ namespace vk
 				.flags = 0,
 				.queueCreateInfoCount = static_cast<rsl::uint32>(queueCreateInfos.size()),
 				.pQueueCreateInfos = queueCreateInfos.data(),
-				.enabledLayerCount = 0,
-				.ppEnabledLayerNames = nullptr,
+				.enabledLayerCount = static_cast<rsl::uint32>(layers.size()),
+				.ppEnabledLayerNames = layers.data(),
 				.enabledExtensionCount = static_cast<rsl::uint32>(extensions.size()),
 				.ppEnabledExtensionNames = extensions.data(),
 				.pEnabledFeatures = &features,
@@ -1159,8 +1223,13 @@ namespace vk
 			return {};
 		}
 
+		auto* impl = get_native_ptr(*this);
+		std::vector<rsl::cstring> enabledLayers;
+		enabledLayers.reserve(impl->enabledLayers.size());
+		for (auto& layer : impl->enabledLayers) { enabledLayers.push_back(layer.name.c_str()); }
+
 		auto result = create_render_device_no_extension_check(
-			physicalDevices[selectedDevice], queueDesciptions, enabledExtensions
+			physicalDevices[selectedDevice], queueDesciptions, enabledExtensions, enabledLayers
 		);
 
 		release_physical_devices();
@@ -1168,7 +1237,7 @@ namespace vk
 		return result;
 	}
 
-	bool native_instance_vk::load_functions([[maybe_unused]] std::span<rsl::cstring> extensions)
+	bool native_instance_vk::load_functions(std::span<const rsl::cstring> extensions)
 	{
 		auto* lib = get_native_ptr(graphicsLib);
 
@@ -1981,7 +2050,12 @@ namespace vk
 			return {};
 		}
 
-		return create_render_device_no_extension_check(*this, queueDesciptions, enabledExtensions);
+		auto* instancePtr = get_native_ptr(impl->instance);
+		std::vector<rsl::cstring> enabledLayers;
+		enabledLayers.reserve(instancePtr->enabledLayers.size());
+		for (auto& layer : instancePtr->enabledLayers) { enabledLayers.push_back(layer.name.c_str()); }
+
+		return create_render_device_no_extension_check(*this, queueDesciptions, enabledExtensions, enabledLayers);
 	}
 
 	render_device::operator bool() const noexcept
@@ -2030,7 +2104,7 @@ namespace vk
 		return ptr->physicalDevice;
 	}
 
-	bool native_render_device_vk::load_functions(std::span<rsl::cstring> extensions)
+	bool native_render_device_vk::load_functions(std::span<const rsl::cstring> extensions)
 	{
 #define DEVICE_LEVEL_VULKAN_FUNCTION(name)                                                                             \
 	name = std::bit_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));                                              \
