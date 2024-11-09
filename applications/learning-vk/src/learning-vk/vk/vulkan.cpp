@@ -311,6 +311,7 @@ namespace vk
 
 		rsl::size_type queueIndex;
 		rsl::size_type familyIndex;
+		queue_family_properties family;
 		queue_priority priority;
 		VkQueue queue = VK_NULL_HANDLE;
 	};
@@ -342,6 +343,14 @@ namespace vk
 		rythe_always_inline typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
 		{
 			return std::bit_cast<typename native_handle_traits<T>::native_type*>(inst.get_native_handle());
+		}
+
+		template <typename T>
+		rythe_always_inline typename native_handle_traits<T>::native_type& get_native_ref(const T& inst)
+		{
+			auto* ptr = get_native_ptr(inst);
+			rsl_assert_invalid_object(ptr);
+			return *ptr;
 		}
 
 		template <typename T>
@@ -441,12 +450,12 @@ namespace vk
 
 	std::span<const layer_properties> graphics_library::get_available_instance_layers(bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || impl->availableInstanceLayers.empty())
+		if (forceRefresh || impl.availableInstanceLayers.empty())
 		{
 			rsl::uint32 layerCount = 0;
-			VkResult result = impl->vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+			VkResult result = impl.vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
 			if (result != VK_SUCCESS || layerCount == 0)
 			{
 				std::cout << "Could not query the number of instance layers.\n";
@@ -455,18 +464,18 @@ namespace vk
 
 			std::vector<VkLayerProperties> availableInstanceLayersBuffer;
 			availableInstanceLayersBuffer.resize(layerCount);
-			result = impl->vkEnumerateInstanceLayerProperties(&layerCount, availableInstanceLayersBuffer.data());
+			result = impl.vkEnumerateInstanceLayerProperties(&layerCount, availableInstanceLayersBuffer.data());
 			if (result != VK_SUCCESS || layerCount == 0)
 			{
 				std::cout << "Could not enumerate instance layers.\n";
 				return {};
 			}
 
-			impl->availableInstanceLayers.clear();
-			impl->availableInstanceLayers.reserve(layerCount);
+			impl.availableInstanceLayers.clear();
+			impl.availableInstanceLayers.reserve(layerCount);
 			for (auto& layer : availableInstanceLayersBuffer)
 			{
-				impl->availableInstanceLayers.push_back({
+				impl.availableInstanceLayers.push_back({
 					.name = rsl::hashed_string(layer.layerName),
 					.specVersion = decomposeVkVersion(layer.specVersion),
 					.implementationVersion = decomposeVkVersion(layer.implementationVersion),
@@ -475,7 +484,7 @@ namespace vk
 			}
 		}
 
-		return impl->availableInstanceLayers;
+		return impl.availableInstanceLayers;
 	}
 
 	bool graphics_library::is_instance_layer_available(rsl::hashed_string_view layerName)
@@ -485,12 +494,12 @@ namespace vk
 
 	std::span<const extension_properties> graphics_library::get_available_instance_extensions(bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || impl->availableInstanceExtensions.empty())
+		if (forceRefresh || impl.availableInstanceExtensions.empty())
 		{
 			rsl::uint32 extensionCount = 0;
-			VkResult result = impl->vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+			VkResult result = impl.vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
 			if (result != VK_SUCCESS || extensionCount == 0)
 			{
 				std::cout << "Could not query the number of instance extensions.\n";
@@ -499,7 +508,7 @@ namespace vk
 
 			std::vector<VkExtensionProperties> availableInstanceExtensionsBuffer;
 			availableInstanceExtensionsBuffer.resize(extensionCount);
-			result = impl->vkEnumerateInstanceExtensionProperties(
+			result = impl.vkEnumerateInstanceExtensionProperties(
 				nullptr, &extensionCount, availableInstanceExtensionsBuffer.data()
 			);
 			if (result != VK_SUCCESS || extensionCount == 0)
@@ -508,18 +517,18 @@ namespace vk
 				return {};
 			}
 
-			impl->availableInstanceExtensions.clear();
-			impl->availableInstanceExtensions.reserve(extensionCount);
+			impl.availableInstanceExtensions.clear();
+			impl.availableInstanceExtensions.reserve(extensionCount);
 			for (auto& extension : availableInstanceExtensionsBuffer)
 			{
-				impl->availableInstanceExtensions.push_back({
+				impl.availableInstanceExtensions.push_back({
 					.name = rsl::hashed_string(extension.extensionName),
 					.specVersion = decomposeVkVersion(extension.specVersion),
 				});
 			}
 		}
 
-		return impl->availableInstanceExtensions;
+		return impl.availableInstanceExtensions;
 	}
 
 	bool graphics_library::is_instance_extension_available(rsl::hashed_string_view extensionName)
@@ -682,10 +691,10 @@ namespace vk
 			.ppEnabledExtensionNames = enabledExtensions.data(),
 		};
 
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
 		VkInstance vkInstance = VK_NULL_HANDLE;
-		VkResult result = impl->vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
+		VkResult result = impl.vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
 
 		if (result != VK_SUCCESS || vkInstance == VK_NULL_HANDLE)
 		{
@@ -768,12 +777,12 @@ namespace vk
 
 	std::span<physical_device> instance::create_physical_devices(bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || impl->physicalDevices.empty())
+		if (forceRefresh || impl.physicalDevices.empty())
 		{
 			rsl::uint32 deviceCount = 0;
-			VkResult result = impl->vkEnumeratePhysicalDevices(impl->instance, &deviceCount, nullptr);
+			VkResult result = impl.vkEnumeratePhysicalDevices(impl.instance, &deviceCount, nullptr);
 			if (result != VK_SUCCESS || deviceCount == 0)
 			{
 				std::cout << "Could not query the number of physical devices.\n";
@@ -782,7 +791,7 @@ namespace vk
 
 			std::vector<VkPhysicalDevice> physicalDevicesBuffer;
 			physicalDevicesBuffer.resize(deviceCount);
-			result = impl->vkEnumeratePhysicalDevices(impl->instance, &deviceCount, physicalDevicesBuffer.data());
+			result = impl.vkEnumeratePhysicalDevices(impl.instance, &deviceCount, physicalDevicesBuffer.data());
 
 			if (result != VK_SUCCESS || deviceCount == 0)
 			{
@@ -791,30 +800,35 @@ namespace vk
 			}
 
 			release_physical_devices();
-			impl->physicalDevices.reserve(deviceCount);
+			impl.physicalDevices.reserve(deviceCount);
 			for (auto& pd : physicalDevicesBuffer)
 			{
-				auto& physicalDevice = impl->physicalDevices.emplace_back();
+				auto& physicalDevice = impl.physicalDevices.emplace_back();
 				native_physical_device_vk* nativePhysicalDevice = new native_physical_device_vk();
 				set_native_handle(physicalDevice, create_native_handle(nativePhysicalDevice));
 
 				nativePhysicalDevice->physicalDevice = pd;
 				nativePhysicalDevice->instance = *this;
 
-#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl->name;
+#define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl.name;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
-	nativePhysicalDevice->name = impl->name;
-#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl->name;
+	nativePhysicalDevice->name = impl.name;
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) nativePhysicalDevice->name = impl.name;
 #include "impl/list_of_vulkan_functions.inl"
 			}
 		}
 
-		return impl->physicalDevices;
+		return impl.physicalDevices;
 	}
 
 	void instance::release_physical_devices()
 	{
 		auto* impl = get_native_ptr(*this);
+
+        if (!impl)
+        {
+            return;
+        }
 
 		for (auto& device : impl->physicalDevices) { device.release(); }
 
@@ -823,12 +837,12 @@ namespace vk
 
 	const application_info& instance::get_application_info() const noexcept
 	{
-		return get_native_ptr(*this)->applicationInfo;
+		return get_native_ref(*this).applicationInfo;
 	}
 
 	const semver::version& instance::get_api_version() const noexcept
 	{
-		return get_native_ptr(*this)->apiVersion;
+		return get_native_ref(*this).apiVersion;
 	}
 
 	namespace
@@ -836,7 +850,7 @@ namespace vk
 		physical_device copy_physical_device(physical_device src)
 		{
 			physical_device copy;
-			set_native_handle(copy, create_native_handle(new native_physical_device_vk(*get_native_ptr(src))));
+			set_native_handle(copy, create_native_handle(new native_physical_device_vk(get_native_ref(src))));
 
 			return copy;
 		}
@@ -846,7 +860,7 @@ namespace vk
 			std::span<const rsl::cstring> extensions, std::span<const rsl::cstring> layers
 		)
 		{
-			auto* impl = get_native_ptr(physicalDevice);
+			auto& impl = get_native_ref(physicalDevice);
 
 			std::vector<queue_family_selection> queueFamilySelections;
 			queueFamilySelections.resize(queueDesciptions.size());
@@ -897,7 +911,7 @@ namespace vk
 			}
 
 			VkPhysicalDeviceFeatures features;
-			impl->vkGetPhysicalDeviceFeatures(impl->physicalDevice, &features);
+			impl.vkGetPhysicalDeviceFeatures(impl.physicalDevice, &features);
 
 			VkDeviceCreateInfo deviceCreateInfo{
 				.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -913,7 +927,7 @@ namespace vk
 			};
 
 			VkDevice device = VK_NULL_HANDLE;
-			VkResult result = impl->vkCreateDevice(impl->physicalDevice, &deviceCreateInfo, nullptr, &device);
+			VkResult result = impl.vkCreateDevice(impl.physicalDevice, &deviceCreateInfo, nullptr, &device);
 
 			if (result != VK_SUCCESS || device == VK_NULL_HANDLE)
 			{
@@ -923,7 +937,7 @@ namespace vk
 			auto* renderDevicePtr = new native_render_device_vk();
 			renderDevicePtr->device = device;
 
-#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) renderDevicePtr->name = impl->name;
+#define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) renderDevicePtr->name = impl.name;
 #include "impl/list_of_vulkan_functions.inl"
 
 			if (!renderDevicePtr->load_functions(extensions))
@@ -961,9 +975,10 @@ namespace vk
 
 					native_queue_vk* nativeQueue = new native_queue_vk();
 					nativeQueue->queue = vkQueue;
-					nativeQueue->renderDevice = impl->renderDevice;
+					nativeQueue->renderDevice = impl.renderDevice;
 					nativeQueue->queueIndex = inputIndex;
 					nativeQueue->familyIndex = info.queueFamilyIndex;
+					nativeQueue->family = queueFamilies[info.queueFamilyIndex];
 					nativeQueue->priority = queueDesciptions[inputIndex].priority;
 
 					set_native_handle(queue, create_native_handle(nativeQueue));
@@ -972,16 +987,16 @@ namespace vk
 
 			renderDevicePtr->physicalDevice = copy_physical_device(physicalDevice);
 
-			set_native_handle(impl->renderDevice, create_native_handle(renderDevicePtr));
-			return impl->renderDevice;
+			set_native_handle(impl.renderDevice, create_native_handle(renderDevicePtr));
+			return impl.renderDevice;
 		}
 	} // namespace
 
 	surface instance::create_surface()
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (impl->applicationInfo.windowHandle == invalid_native_window_handle)
+		if (impl.applicationInfo.windowHandle == invalid_native_window_handle)
 		{
 			return {};
 		}
@@ -993,11 +1008,11 @@ namespace vk
 			.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
 			.pNext = nullptr,
 			.flags = 0,
-			.hinstance = get_hinstance(impl->applicationInfo.windowHandle),
-			.hwnd = get_hwnd(impl->applicationInfo.windowHandle),
+			.hinstance = get_hinstance(impl.applicationInfo.windowHandle),
+			.hwnd = get_hwnd(impl.applicationInfo.windowHandle),
 		};
 
-		if (impl->vkCreateWin32SurfaceKHR(impl->instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		if (impl.vkCreateWin32SurfaceKHR(impl.instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
 		{
 			return {};
 		}
@@ -1007,11 +1022,11 @@ namespace vk
 			.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
 			.pNext = nullptr,
 			.flags = 0,
-			.connection = get_connection(impl->applicationInfo.windowHandle),
-			.window = get_window(impl->applicationInfo.windowHandle),
+			.connection = get_connection(impl.applicationInfo.windowHandle),
+			.window = get_window(impl.applicationInfo.windowHandle),
 		};
 
-		if (impl->vkCreateXcbSurfaceKHR(impl->instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		if (impl.vkCreateXcbSurfaceKHR(impl.instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
 		{
 			return {};
 		}
@@ -1021,11 +1036,11 @@ namespace vk
 			.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
 			.pNext = nullptr,
 			.flags = 0,
-			.dpy = get_display(impl->applicationInfo.windowHandle),
-			.window = get_window(impl->applicationInfo.windowHandle),
+			.dpy = get_display(impl.applicationInfo.windowHandle),
+			.window = get_window(impl.applicationInfo.windowHandle),
 		};
 
-		if (impl->vkCreateXlibSurfaceKHR(impl->instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		if (impl.vkCreateXlibSurfaceKHR(impl.instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
 		{
 			return {};
 		}
@@ -1223,10 +1238,10 @@ namespace vk
 			return {};
 		}
 
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 		std::vector<rsl::cstring> enabledLayers;
-		enabledLayers.reserve(impl->enabledLayers.size());
-		for (auto& layer : impl->enabledLayers) { enabledLayers.push_back(layer.name.c_str()); }
+		enabledLayers.reserve(impl.enabledLayers.size());
+		for (auto& layer : impl.enabledLayers) { enabledLayers.push_back(layer.name.c_str()); }
 
 		auto result = create_render_device_no_extension_check(
 			physicalDevices[selectedDevice], queueDesciptions, enabledExtensions, enabledLayers
@@ -1239,10 +1254,10 @@ namespace vk
 
 	bool native_instance_vk::load_functions(std::span<const rsl::cstring> extensions)
 	{
-		auto* lib = get_native_ptr(graphicsLib);
+		auto& lib = get_native_ref(graphicsLib);
 
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
-	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                     \
+	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                     \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1254,7 +1269,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                             \
+			name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                             \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1265,7 +1280,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name)                                                           \
-	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                     \
+	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                     \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1277,7 +1292,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                             \
+			name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                             \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1288,7 +1303,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name)                                                                    \
-	name = std::bit_cast<PFN_##name>(lib->vkGetInstanceProcAddr(instance, #name));                                     \
+	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                     \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1503,40 +1518,40 @@ namespace vk
 
 	const surface_capabilities& physical_device::get_surface_capabilities(surface _surface, bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || !impl->surfaceCapsLoaded)
+		if (forceRefresh || !impl.surfaceCapsLoaded)
 		{
-			auto* nativeSurface = get_native_ptr(_surface);
+			auto& nativeSurface = get_native_ref(_surface);
 
 			VkSurfaceCapabilitiesKHR vkSurfaceCaps;
-			impl->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-				impl->physicalDevice, nativeSurface->surface, &vkSurfaceCaps
+			impl.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+				impl.physicalDevice, nativeSurface.surface, &vkSurfaceCaps
 			);
 
-			impl->surfaceCaps.minImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.minImageCount);
-			impl->surfaceCaps.maxImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageCount);
-			impl->surfaceCaps.currentExtent =
+			impl.surfaceCaps.minImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.minImageCount);
+			impl.surfaceCaps.maxImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageCount);
+			impl.surfaceCaps.currentExtent =
 				rsl::math::uint2(vkSurfaceCaps.currentExtent.width, vkSurfaceCaps.currentExtent.height);
-			impl->surfaceCaps.minImageExtent =
+			impl.surfaceCaps.minImageExtent =
 				rsl::math::uint2(vkSurfaceCaps.minImageExtent.width, vkSurfaceCaps.minImageExtent.height);
-			impl->surfaceCaps.maxImageExtent =
+			impl.surfaceCaps.maxImageExtent =
 				rsl::math::uint2(vkSurfaceCaps.maxImageExtent.width, vkSurfaceCaps.maxImageExtent.height);
-			impl->surfaceCaps.maxImageArrayLayers = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageArrayLayers);
-			impl->surfaceCaps.supportedTransforms = map_vk_surface_transform_flags(
+			impl.surfaceCaps.maxImageArrayLayers = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageArrayLayers);
+			impl.surfaceCaps.supportedTransforms = map_vk_surface_transform_flags(
 				static_cast<VkSurfaceTransformFlagBitsKHR>(vkSurfaceCaps.supportedTransforms)
 			);
-			impl->surfaceCaps.currentTransform = map_vk_surface_transform_flags(vkSurfaceCaps.currentTransform);
-			impl->surfaceCaps.supportedCompositeAlpha = map_vk_composite_alpha_flags(
+			impl.surfaceCaps.currentTransform = map_vk_surface_transform_flags(vkSurfaceCaps.currentTransform);
+			impl.surfaceCaps.supportedCompositeAlpha = map_vk_composite_alpha_flags(
 				static_cast<VkCompositeAlphaFlagBitsKHR>(vkSurfaceCaps.supportedCompositeAlpha)
 			);
-			impl->surfaceCaps.supportedUsageFlags =
+			impl.surfaceCaps.supportedUsageFlags =
 				map_vk_image_usage_flags(static_cast<VkImageUsageFlagBits>(vkSurfaceCaps.supportedUsageFlags));
 
-			impl->surfaceCapsLoaded = true;
+			impl.surfaceCapsLoaded = true;
 		}
 
-		return impl->surfaceCaps;
+		return impl.surfaceCaps;
 	}
 
 	namespace
@@ -1692,26 +1707,26 @@ namespace vk
 
 	const physical_device_properties& physical_device::get_properties(bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || !impl->propertiesLoaded)
+		if (forceRefresh || !impl.propertiesLoaded)
 		{
 			VkPhysicalDeviceProperties props;
-			impl->vkGetPhysicalDeviceProperties(impl->physicalDevice, &props);
+			impl.vkGetPhysicalDeviceProperties(impl.physicalDevice, &props);
 
-			impl->properties.apiVersion = decomposeVkVersion(props.apiVersion);
-			impl->properties.driverVersion = decomposeVkVersion(props.driverVersion);
-			impl->properties.vendorID = props.vendorID;
-			impl->properties.deviceID = props.deviceID;
-			impl->properties.deviceType = map_vk_physical_device_type(props.deviceType);
-			impl->properties.deviceName = props.deviceName;
-			map_vk_physical_device_limits(impl->properties.limits, props.limits);
-			map_vk_physical_device_sparse_properties(impl->properties.sparseProperties, props.sparseProperties);
+			impl.properties.apiVersion = decomposeVkVersion(props.apiVersion);
+			impl.properties.driverVersion = decomposeVkVersion(props.driverVersion);
+			impl.properties.vendorID = props.vendorID;
+			impl.properties.deviceID = props.deviceID;
+			impl.properties.deviceType = map_vk_physical_device_type(props.deviceType);
+			impl.properties.deviceName = props.deviceName;
+			map_vk_physical_device_limits(impl.properties.limits, props.limits);
+			map_vk_physical_device_sparse_properties(impl.properties.sparseProperties, props.sparseProperties);
 
-			impl->propertiesLoaded = true;
+			impl.propertiesLoaded = true;
 		}
 
-		return impl->properties;
+		return impl.properties;
 	}
 
 	namespace
@@ -1778,30 +1793,30 @@ namespace vk
 
 	const physical_device_features& physical_device::get_features(bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || !impl->featuresLoaded)
+		if (forceRefresh || !impl.featuresLoaded)
 		{
 			VkPhysicalDeviceFeatures features;
-			impl->vkGetPhysicalDeviceFeatures(impl->physicalDevice, &features);
-			map_vk_physical_device_features(impl->features, features);
+			impl.vkGetPhysicalDeviceFeatures(impl.physicalDevice, &features);
+			map_vk_physical_device_features(impl.features, features);
 
-			impl->featuresLoaded = true;
+			impl.featuresLoaded = true;
 		}
 
-		return impl->features;
+		return impl.features;
 	}
 
 	std::span<const extension_properties> physical_device::get_available_extensions(bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || impl->availableExtensions.empty())
+		if (forceRefresh || impl.availableExtensions.empty())
 		{
 			rsl::uint32 extensionCount = 0;
 
 			VkResult result =
-				impl->vkEnumerateDeviceExtensionProperties(impl->physicalDevice, nullptr, &extensionCount, nullptr);
+				impl.vkEnumerateDeviceExtensionProperties(impl.physicalDevice, nullptr, &extensionCount, nullptr);
 			if (result != VK_SUCCESS || extensionCount == 0)
 			{
 				std::cout << "Count not query the number of device extensions.\n";
@@ -1810,8 +1825,8 @@ namespace vk
 
 			std::vector<VkExtensionProperties> extensionPropertiesBuffer;
 			extensionPropertiesBuffer.resize(extensionCount);
-			result = impl->vkEnumerateDeviceExtensionProperties(
-				impl->physicalDevice, nullptr, &extensionCount, extensionPropertiesBuffer.data()
+			result = impl.vkEnumerateDeviceExtensionProperties(
+				impl.physicalDevice, nullptr, &extensionCount, extensionPropertiesBuffer.data()
 			);
 
 			if (result != VK_SUCCESS || extensionCount == 0)
@@ -1820,18 +1835,18 @@ namespace vk
 				return {};
 			}
 
-			impl->availableExtensions.clear();
-			impl->availableExtensions.reserve(extensionCount);
+			impl.availableExtensions.clear();
+			impl.availableExtensions.reserve(extensionCount);
 			for (auto& extension : extensionPropertiesBuffer)
 			{
-				impl->availableExtensions.push_back(extension_properties{
+				impl.availableExtensions.push_back(extension_properties{
 					.name = rsl::hashed_string(extension.extensionName),
 					.specVersion = decomposeVkVersion(extension.specVersion),
 				});
 			}
 		}
 
-		return impl->availableExtensions;
+		return impl.availableExtensions;
 	}
 
 	bool physical_device::is_extension_available(rsl::hashed_string_view extensionName)
@@ -1860,13 +1875,13 @@ namespace vk
 	std::span<const queue_family_properties>
 	physical_device::get_available_queue_families(surface surface, bool forceRefresh)
 	{
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		if (forceRefresh || impl->availableQueueFamilies.empty())
+		if (forceRefresh || impl.availableQueueFamilies.empty())
 		{
 			rsl::uint32 queueFamilyCount = 0;
 
-			impl->vkGetPhysicalDeviceQueueFamilyProperties(impl->physicalDevice, &queueFamilyCount, nullptr);
+			impl.vkGetPhysicalDeviceQueueFamilyProperties(impl.physicalDevice, &queueFamilyCount, nullptr);
 			if (queueFamilyCount == 0)
 			{
 				std::cout << "Count not query the number of queue families.\n";
@@ -1875,8 +1890,8 @@ namespace vk
 
 			std::vector<VkQueueFamilyProperties> queueFamiliesBuffer;
 			queueFamiliesBuffer.resize(queueFamilyCount);
-			impl->vkGetPhysicalDeviceQueueFamilyProperties(
-				impl->physicalDevice, &queueFamilyCount, queueFamiliesBuffer.data()
+			impl.vkGetPhysicalDeviceQueueFamilyProperties(
+				impl.physicalDevice, &queueFamilyCount, queueFamiliesBuffer.data()
 			);
 
 			if (queueFamilyCount == 0)
@@ -1885,19 +1900,19 @@ namespace vk
 				return {};
 			}
 
-			impl->availableQueueFamilies.clear();
-			impl->availableQueueFamilies.reserve(queueFamilyCount);
+			impl.availableQueueFamilies.clear();
+			impl.availableQueueFamilies.reserve(queueFamilyCount);
 
-			auto* nativeInstance = get_native_ptr(impl->instance);
+			auto& nativeInstance = get_native_ref(impl.instance);
 
 			bool surfaceCreated = false;
 			if (!surface)
 			{
-				surface = impl->instance.create_surface();
+				surface = impl.instance.create_surface();
 				surfaceCreated = true;
 			}
 
-			native_surface_vk* nativeSurface = get_native_ptr(surface);
+			auto* nativeSurface = get_native_ptr(surface);
 
 			for (rsl::uint32 queueFamilyIndex = 0; queueFamilyIndex < queueFamilyCount; queueFamilyIndex++)
 			{
@@ -1907,15 +1922,15 @@ namespace vk
 
 				if (nativeSurface)
 				{
-					if (nativeInstance->vkGetPhysicalDeviceSurfaceSupportKHR(
-							impl->physicalDevice, queueFamilyIndex, nativeSurface->surface, &supportsPresent
+					if (nativeInstance.vkGetPhysicalDeviceSurfaceSupportKHR(
+							impl.physicalDevice, queueFamilyIndex, nativeSurface->surface, &supportsPresent
 						) != VK_SUCCESS)
 					{
 						supportsPresent = VK_FALSE;
 					}
 				}
 
-				impl->availableQueueFamilies.push_back({
+				impl.availableQueueFamilies.push_back({
 					.features = map_vk_queue_features(queueFamily.queueFlags, supportsPresent == VK_TRUE),
 					.queueCount = queueFamily.queueCount,
 					.timestampValidBits = queueFamily.timestampValidBits,
@@ -1934,7 +1949,7 @@ namespace vk
 			}
 		}
 
-		return impl->availableQueueFamilies;
+		return impl.availableQueueFamilies;
 	}
 
 	bool physical_device::get_queue_family_selection(
@@ -2003,7 +2018,7 @@ namespace vk
 
 	bool physical_device::in_use() const noexcept
 	{
-		return get_native_ptr(*this)->renderDevice;
+		return get_native_ref(*this).renderDevice;
 	}
 
 	render_device physical_device::create_render_device(
@@ -2012,9 +2027,9 @@ namespace vk
 	{
 		using namespace rsl::hashed_string_literals;
 
-		auto* impl = get_native_ptr(*this);
+		auto& impl = get_native_ref(*this);
 
-		bool presentingApplication = impl->instance.get_application_info().windowHandle != invalid_native_window_handle;
+		bool presentingApplication = impl.instance.get_application_info().windowHandle != invalid_native_window_handle;
 
 		std::vector<rsl::cstring> enabledExtensions;
 		enabledExtensions.reserve(extensions.size() + (presentingApplication ? 1 : 0));
@@ -2050,10 +2065,10 @@ namespace vk
 			return {};
 		}
 
-		auto* instancePtr = get_native_ptr(impl->instance);
+		auto& instancePtr = get_native_ref(impl.instance);
 		std::vector<rsl::cstring> enabledLayers;
-		enabledLayers.reserve(instancePtr->enabledLayers.size());
-		for (auto& layer : instancePtr->enabledLayers) { enabledLayers.push_back(layer.name.c_str()); }
+		enabledLayers.reserve(instancePtr.enabledLayers.size());
+		for (auto& layer : instancePtr.enabledLayers) { enabledLayers.push_back(layer.name.c_str()); }
 
 		return create_render_device_no_extension_check(*this, queueDesciptions, enabledExtensions, enabledLayers);
 	}
@@ -2083,25 +2098,12 @@ namespace vk
 
 	std::span<queue> render_device::get_queues() noexcept
 	{
-		auto* impl = get_native_ptr(*this);
-
-		if (impl)
-		{
-			return impl->queues;
-		}
-
-		return {};
+		return get_native_ref(*this).queues;
 	}
 
 	physical_device render_device::get_physical_device() const noexcept
 	{
-		auto ptr = get_native_ptr(*this);
-		if (!ptr)
-		{
-			return physical_device();
-		}
-
-		return ptr->physicalDevice;
+		return get_native_ref(*this).physicalDevice;
 	}
 
 	bool native_render_device_vk::load_functions(std::span<const rsl::cstring> extensions)
@@ -2136,38 +2138,22 @@ namespace vk
 
 	rsl::size_type queue::get_index() const noexcept
 	{
-		auto* impl = get_native_ptr(*this);
-
-		if (impl)
-		{
-			return impl->queueIndex;
-		}
-
-		return rsl::npos;
+		return get_native_ref(*this).queueIndex;
 	}
 
 	rsl::size_type queue::get_family_index() const noexcept
 	{
-		auto* impl = get_native_ptr(*this);
-
-		if (impl)
-		{
-			return impl->familyIndex;
-		}
-
-		return rsl::npos;
+		return get_native_ref(*this).familyIndex;
 	}
 
 	queue_priority queue::get_priority() const noexcept
 	{
-		auto* impl = get_native_ptr(*this);
+		return get_native_ref(*this).priority;
+	}
 
-		if (impl)
-		{
-			return impl->priority;
-		}
-
-		return queue_priority::normal;
+	const queue_family_properties& queue::get_family() const noexcept
+	{
+		return get_native_ref(*this).family;
 	}
 
 } // namespace vk

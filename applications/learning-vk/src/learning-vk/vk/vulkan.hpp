@@ -558,6 +558,7 @@ namespace vk
 		rsl::size_type get_index() const noexcept;
 		rsl::size_type get_family_index() const noexcept;
 		queue_priority get_priority() const noexcept;
+		const queue_family_properties& get_family() const noexcept;
 
 		rythe_always_inline native_queue get_native_handle() const noexcept { return m_nativeQueue; }
 
