@@ -1,9 +1,9 @@
 #pragma once
 
+#include <rsl/hashed_string>
 #include <rsl/math>
 #include <rsl/platform>
 #include <rsl/primitives>
-#include <rsl/hashed_string>
 
 #include <semver/semver.hpp>
 #include <span>
@@ -27,7 +27,7 @@ namespace vk
 		HWND hwnd;
 	};
 
-	native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo);
+	[[nodiscard]] native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo);
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
 	struct native_window_info_xcb
@@ -52,7 +52,7 @@ namespace vk
 
 	class graphics_library;
 
-	graphics_library init();
+	[[nodiscard]] graphics_library init();
 
 	struct extension_properties
 	{
@@ -91,11 +91,10 @@ namespace vk
 
 		std::span<const extension_properties> get_available_instance_extensions(bool forceRefresh = false);
 		bool is_instance_extension_available(rsl::hashed_string_view extensionName);
-				
-		instance create_instance(
+
+		[[nodiscard]] instance create_instance(
 			const application_info& applicationInfo, const semver::version& apiVersion = {1, 0, 0},
-			std::span<const rsl::hashed_string> layers = {},
-			std::span<const rsl::hashed_string> extensions = {}
+			std::span<const rsl::hashed_string> layers = {}, std::span<const rsl::hashed_string> extensions = {}
 		);
 
 		rythe_always_inline native_graphics_library get_native_handle() const noexcept { return m_nativeGL; }
@@ -178,13 +177,13 @@ namespace vk
 
 	enum struct sample_count_flags : rsl::uint8
 	{
-		sc1Bit = 0x00000001,
-		sc2Bit = 0x00000002,
-		sc4Bit = 0x00000004,
-		sc8Bit = 0x00000008,
-		sc16Bit = 0x00000010,
-		sc32Bit = 0x00000020,
-		sc64Bit = 0x00000040,
+		sc1Bit = 1 << 0,
+		sc2Bit = 1 << 1,
+		sc4Bit = 1 << 2,
+		sc8Bit = 1 << 3,
+		sc16Bit = 1 << 4,
+		sc32Bit = 1 << 5,
+		sc64Bit = 1 << 6,
 	};
 
 	struct physical_device_limits
@@ -378,7 +377,7 @@ namespace vk
 		rsl::size_type familyIndex = rsl::npos;
 		rsl::size_type score = 0;
 	};
-	
+
 	enum struct surface_transform_flags : rsl::uint32
 	{
 		identity = 1 << 0,
@@ -477,9 +476,9 @@ namespace vk
 		const application_info& get_application_info() const noexcept;
 		const semver::version& get_api_version() const noexcept;
 
-		surface create_surface();
+		[[nodiscard]] surface create_surface();
 
-		render_device auto_select_and_create_device(
+		[[nodiscard]] render_device auto_select_and_create_device(
 			const physical_device_description& physicalDeviceDescription,
 			std::span<const queue_description> queueDesciptions, surface surface = {},
 			std::span<const rsl::hashed_string> extensions = {}
@@ -509,7 +508,8 @@ namespace vk
 		std::span<const extension_properties> get_available_extensions(bool forceRefresh = false);
 		bool is_extension_available(rsl::hashed_string_view extensionName);
 
-		std::span<const queue_family_properties> get_available_queue_families(surface surface = {}, bool forceRefresh = false);
+		std::span<const queue_family_properties>
+		get_available_queue_families(surface surface = {}, bool forceRefresh = false);
 		bool get_queue_family_selection(
 			std::span<queue_family_selection> queueFamilySelections,
 			std::span<const queue_description> queueDesciptions, surface surface = {}
@@ -517,7 +517,7 @@ namespace vk
 
 		bool in_use() const noexcept;
 
-		render_device create_render_device(
+		[[nodiscard]] render_device create_render_device(
 			std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions = {}
 		);
 
@@ -550,20 +550,95 @@ namespace vk
 		friend void set_native_handle(render_device&, native_render_device);
 	};
 
+	class transient_command_pool;
+	class persistent_command_pool;
+
 	DECLARE_OPAQUE_HANDLE(native_queue);
 
 	class queue
 	{
 	public:
+		operator bool() const noexcept;
+
+		void release();
+
 		rsl::size_type get_index() const noexcept;
 		rsl::size_type get_family_index() const noexcept;
 		queue_priority get_priority() const noexcept;
 		const queue_family_properties& get_family() const noexcept;
+
+		[[nodiscard]] persistent_command_pool create_persistent_command_pool(bool protectedCommandBuffers = false);
+		[[nodiscard]] transient_command_pool create_transient_command_pool(bool protectedCommandBuffers = false);
 
 		rythe_always_inline native_queue get_native_handle() const noexcept { return m_nativeQueue; }
 
 	private:
 		native_queue m_nativeQueue = invalid_native_queue;
 		friend void set_native_handle(queue&, native_queue);
+	};
+
+    enum struct command_buffer_level : rsl::uint8
+    {
+        primary,
+        secondary,
+    };
+
+	class command_buffer;
+
+	DECLARE_OPAQUE_HANDLE(native_command_pool);
+
+	class command_pool
+	{
+	public:
+		operator bool() const noexcept;
+
+		virtual void release() = 0;
+
+        virtual void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) = 0;
+		virtual command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) = 0;
+
+		rythe_always_inline native_command_pool get_native_handle() const noexcept { return m_nativeCommandPool; }
+
+	protected:
+		native_command_pool m_nativeCommandPool = invalid_native_command_pool;
+		friend void set_native_handle(command_pool&, native_command_pool);
+	};
+
+    class persistent_command_pool : public command_pool
+	{
+	public:
+		using command_pool::operator bool;
+
+		void release() override;
+
+		void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
+		command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) override;
+    };
+
+    class transient_command_pool : public command_pool
+    {
+	public:
+        using command_pool::operator bool;
+
+        void release() override;
+
+        void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
+		command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) override;
+    };
+
+	DECLARE_OPAQUE_HANDLE(native_command_buffer);
+
+	class command_buffer
+	{
+	public:
+		operator bool() const noexcept;
+
+		void release();
+
+		rythe_always_inline native_command_buffer get_native_handle() const noexcept { return m_nativeCommandBuffer; }
+
+	private:
+		native_command_buffer m_nativeCommandBuffer = invalid_native_command_buffer;
+		friend void set_native_handle(command_buffer&, native_command_buffer);
 	};
 } // namespace vk

@@ -39,7 +39,7 @@ namespace vk
 	} // namespace
 
 #if RYTHE_PLATFORM_WINDOWS
-	native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo)
+	[[nodiscard]] native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo)
 	{
 		return std::bit_cast<native_window_handle>(new native_window_info_win32(windowInfo));
 	}
@@ -58,7 +58,7 @@ namespace vk
 	} // namespace
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
-	native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo)
+	[[nodiscard]] native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo)
 	{
 		return std::bit_cast<native_window_handle>(new native_window_info_xcb(windowInfo));
 	}
@@ -76,7 +76,7 @@ namespace vk
 		}
 	} // namespace
 	#elif RYTHE_SURFACE_XLIB
-	native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo)
+	[[nodiscard]] native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo)
 	{
 		return std::bit_cast<native_window_handle>(new native_window_info_xlib(windowInfo));
 	}
@@ -109,51 +109,86 @@ namespace vk
 #endif
 	}
 
-	template <typename T>
-	struct native_handle_traits
-	{
-	};
-
-	struct native_graphics_library_vk
-	{
-		rsl::dynamic_library vulkanLibrary;
-		std::vector<layer_properties> availableInstanceLayers;
-		std::vector<extension_properties> availableInstanceExtensions;
-
-#define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
-#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
-#include "impl/list_of_vulkan_functions.inl"
-
-		constexpr static rsl::platform_dependent_var vulkanLibName = {
-			rsl::windows_var{"vulkan-1.dll"},
-			rsl::linux_var{"libvulkan.so.1"},
-		};
-	};
-
 	rythe_always_inline static void set_native_handle(graphics_library& target, native_graphics_library handle)
 	{
 		target.m_nativeGL = handle;
 	}
 
-	template <>
-	struct native_handle_traits<graphics_library>
+	rythe_always_inline static void set_native_handle(instance& target, native_instance handle)
 	{
-		using native_type = native_graphics_library_vk;
-		using handle_type = native_graphics_library;
-		constexpr static handle_type invalid_handle = invalid_native_graphics_library;
-	};
+		target.m_nativeInstance = handle;
+	}
 
-	template <>
-	struct native_handle_traits<native_graphics_library_vk>
+	rythe_always_inline static void set_native_handle(surface& target, native_surface handle)
 	{
-		using api_type = graphics_library;
-		using handle_type = native_graphics_library;
-		constexpr static handle_type invalid_handle = invalid_native_graphics_library;
-	};
+		target.m_nativeSurface = handle;
+	}
 
-	struct native_instance_vk
+	rythe_always_inline static void set_native_handle(physical_device& target, native_physical_device handle)
 	{
-		bool load_functions(std::span<const rsl::cstring> extensions);
+		target.m_nativePhysicalDevice = handle;
+	}
+
+	rythe_always_inline static void set_native_handle(render_device& target, native_render_device handle)
+	{
+		target.m_nativeRenderDevice = handle;
+	}
+
+	rythe_always_inline static void set_native_handle(queue& target, native_queue handle)
+	{
+		target.m_nativeQueue = handle;
+	}
+
+	rythe_always_inline static void set_native_handle(command_pool& target, native_command_pool handle)
+	{
+		target.m_nativeCommandPool = handle;
+	}
+
+	rythe_always_inline static void set_native_handle(command_buffer& target, native_command_buffer handle)
+	{
+		target.m_nativeCommandBuffer = handle;
+	}
+
+	namespace
+	{
+		template <typename T>
+		struct native_handle_traits
+		{
+		};
+
+		struct native_graphics_library_vk
+		{
+			rsl::dynamic_library vulkanLibrary;
+			std::vector<layer_properties> availableInstanceLayers;
+			std::vector<extension_properties> availableInstanceExtensions;
+
+#define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
+#define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
+#include "impl/list_of_vulkan_functions.inl"
+
+			constexpr static rsl::platform_dependent_var vulkanLibName = {
+				rsl::windows_var{"vulkan-1.dll"},
+				rsl::linux_var{"libvulkan.so.1"},
+			};
+		};
+
+		template <>
+		struct native_handle_traits<graphics_library>
+		{
+			using native_type = native_graphics_library_vk;
+			using handle_type = native_graphics_library;
+		};
+
+		template <>
+		struct native_handle_traits<native_graphics_library_vk>
+		{
+			using api_type = graphics_library;
+			using handle_type = native_graphics_library;
+		};
+
+		struct native_instance_vk
+		{
+			bool load_functions(std::span<const rsl::cstring> extensions);
 
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define INSTANCE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name = nullptr;
@@ -163,182 +198,200 @@ namespace vk
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #include "impl/list_of_vulkan_functions.inl"
 
-		std::vector<physical_device> physicalDevices;
-		application_info applicationInfo;
-		semver::version apiVersion;
+			std::vector<physical_device> physicalDevices;
+			application_info applicationInfo;
+			semver::version apiVersion;
 
-		std::vector<layer_properties> enabledLayers;
-		std::vector<extension_properties> enabledExtensions;
+			std::vector<layer_properties> enabledLayers;
+			std::vector<extension_properties> enabledExtensions;
 
-		VkInstance instance = VK_NULL_HANDLE;
-		graphics_library graphicsLib;
-	};
+			VkInstance instance = VK_NULL_HANDLE;
+			graphics_library graphicsLib;
+		};
 
-	rythe_always_inline static void set_native_handle(instance& target, native_instance handle)
-	{
-		target.m_nativeInstance = handle;
-	}
+		template <>
+		struct native_handle_traits<vk::instance>
+		{
+			using native_type = native_instance_vk;
+			using handle_type = native_instance;
+		};
 
-	template <>
-	struct native_handle_traits<vk::instance>
-	{
-		using native_type = native_instance_vk;
-		using handle_type = native_instance;
-		constexpr static handle_type invalid_handle = invalid_native_instance;
-	};
+		template <>
+		struct native_handle_traits<native_instance_vk>
+		{
+			using api_type = vk::instance;
+			using handle_type = native_instance;
+		};
 
-	template <>
-	struct native_handle_traits<native_instance_vk>
-	{
-		using api_type = vk::instance;
-		using handle_type = native_instance;
-		constexpr static handle_type invalid_handle = invalid_native_instance;
-	};
+		struct native_surface_vk
+		{
+			VkSurfaceKHR surface = VK_NULL_HANDLE;
+			instance instance;
+		};
 
-	struct native_surface_vk
-	{
-		VkSurfaceKHR surface = VK_NULL_HANDLE;
-		instance instance;
-	};
+		template <>
+		struct native_handle_traits<surface>
+		{
+			using native_type = native_surface_vk;
+			using handle_type = native_surface;
+		};
 
-	rythe_always_inline static void set_native_handle(surface& target, native_surface handle)
-	{
-		target.m_nativeSurface = handle;
-	}
+		template <>
+		struct native_handle_traits<native_surface_vk>
+		{
+			using api_type = surface;
+			using handle_type = native_surface;
+		};
 
-	template <>
-	struct native_handle_traits<surface>
-	{
-		using native_type = native_surface_vk;
-		using handle_type = native_surface;
-		constexpr static handle_type invalid_handle = invalid_native_surface;
-	};
-
-	template <>
-	struct native_handle_traits<native_surface_vk>
-	{
-		using api_type = surface;
-		using handle_type = native_surface;
-		constexpr static handle_type invalid_handle = invalid_native_surface;
-	};
-
-	struct native_physical_device_vk
-	{
+		struct native_physical_device_vk
+		{
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION_FROM_EXTENSION(name, extension)                                 \
 	[[maybe_unused]] PFN_##name name = nullptr;
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #include "impl/list_of_vulkan_functions.inl"
 
-		render_device renderDevice;
+			render_device renderDevice;
 
-		bool surfaceCapsLoaded = false;
-		surface_capabilities surfaceCaps;
-		bool featuresLoaded = false;
-		physical_device_features features;
-		bool propertiesLoaded = false;
-		physical_device_properties properties;
-		std::vector<layer_properties> availableLayers;
-		std::vector<extension_properties> availableExtensions;
-		std::vector<queue_family_properties> availableQueueFamilies;
+			bool surfaceCapsLoaded = false;
+			surface_capabilities surfaceCaps;
+			bool featuresLoaded = false;
+			physical_device_features features;
+			bool propertiesLoaded = false;
+			physical_device_properties properties;
+			std::vector<layer_properties> availableLayers;
+			std::vector<extension_properties> availableExtensions;
+			std::vector<queue_family_properties> availableQueueFamilies;
 
-		instance instance;
+			instance instance;
 
-		VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-	};
+			VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+		};
 
-	rythe_always_inline static void set_native_handle(physical_device& target, native_physical_device handle)
-	{
-		target.m_nativePhysicalDevice = handle;
-	}
+		template <>
+		struct native_handle_traits<physical_device>
+		{
+			using native_type = native_physical_device_vk;
+			using handle_type = native_physical_device;
+		};
 
-	template <>
-	struct native_handle_traits<physical_device>
-	{
-		using native_type = native_physical_device_vk;
-		using handle_type = native_physical_device;
-		constexpr static handle_type invalid_handle = invalid_native_physical_device;
-	};
+		template <>
+		struct native_handle_traits<native_physical_device_vk>
+		{
+			using api_type = physical_device;
+			using handle_type = native_physical_device;
+		};
 
-	template <>
-	struct native_handle_traits<native_physical_device_vk>
-	{
-		using api_type = physical_device;
-		using handle_type = native_physical_device;
-		constexpr static handle_type invalid_handle = invalid_native_physical_device;
-	};
-
-	struct native_render_device_vk
-	{
-		bool load_functions(std::span<const rsl::cstring> extensions);
+		struct native_render_device_vk
+		{
+			bool load_functions(std::span<const rsl::cstring> extensions);
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define DEVICE_LEVEL_VULKAN_FUNCTION(name) [[maybe_unused]] PFN_##name name = nullptr;
 #define DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION(name, extension) [[maybe_unused]] PFN_##name name = nullptr;
 #include "impl/list_of_vulkan_functions.inl"
 
-		physical_device physicalDevice;
+			physical_device physicalDevice;
 
-		std::vector<queue> queues;
+			std::vector<queue> queues;
 
-		VkDevice device = VK_NULL_HANDLE;
-	};
+			VkDevice device = VK_NULL_HANDLE;
+		};
 
-	rythe_always_inline static void set_native_handle(render_device& target, native_render_device handle)
-	{
-		target.m_nativeRenderDevice = handle;
-	}
+		template <>
+		struct native_handle_traits<render_device>
+		{
+			using native_type = native_render_device_vk;
+			using handle_type = native_render_device;
+		};
 
-	template <>
-	struct native_handle_traits<render_device>
-	{
-		using native_type = native_render_device_vk;
-		using handle_type = native_render_device;
-		constexpr static handle_type invalid_handle = invalid_native_render_device;
-	};
+		template <>
+		struct native_handle_traits<native_render_device_vk>
+		{
+			using api_type = render_device;
+			using handle_type = native_render_device;
+		};
 
-	template <>
-	struct native_handle_traits<native_render_device_vk>
-	{
-		using api_type = render_device;
-		using handle_type = native_render_device;
-		constexpr static handle_type invalid_handle = invalid_native_render_device;
-	};
+		struct native_queue_vk
+		{
+			render_device renderDevice;
 
-	struct native_queue_vk
-	{
-		render_device renderDevice;
+			rsl::size_type queueIndex;
+			rsl::size_type familyIndex;
+			queue_family_properties family;
+			queue_priority priority;
+			VkQueue queue = VK_NULL_HANDLE;
+		};
 
-		rsl::size_type queueIndex;
-		rsl::size_type familyIndex;
-		queue_family_properties family;
-		queue_priority priority;
-		VkQueue queue = VK_NULL_HANDLE;
-	};
+		template <>
+		struct native_handle_traits<queue>
+		{
+			using native_type = native_queue_vk;
+			using handle_type = native_queue;
+		};
 
-	rythe_always_inline static void set_native_handle(queue& target, native_queue handle)
-	{
-		target.m_nativeQueue = handle;
-	}
+		template <>
+		struct native_handle_traits<native_queue_vk>
+		{
+			using api_type = queue;
+			using handle_type = native_queue;
+		};
 
-	template <>
-	struct native_handle_traits<queue>
-	{
-		using native_type = native_queue_vk;
-		using handle_type = native_queue;
-		constexpr static handle_type invalid_handle = invalid_native_queue;
-	};
+		struct native_command_pool_vk
+		{
+			render_device renderDevice;
 
-	template <>
-	struct native_handle_traits<native_queue_vk>
-	{
-		using api_type = queue;
-		using handle_type = native_queue;
-		constexpr static handle_type invalid_handle = invalid_native_queue;
-	};
+			VkCommandPool commandPool = VK_NULL_HANDLE;
+		};
 
-	namespace
-	{
+		template <>
+		struct native_handle_traits<command_pool>
+		{
+			using native_type = native_command_pool_vk;
+			using handle_type = native_command_pool;
+		};
+
+		template <>
+		struct native_handle_traits<persistent_command_pool>
+		{
+			using native_type = native_command_pool_vk;
+			using handle_type = native_command_pool;
+		};
+
+		template <>
+		struct native_handle_traits<transient_command_pool>
+		{
+			using native_type = native_command_pool_vk;
+			using handle_type = native_command_pool;
+		};
+
+		template <>
+		struct native_handle_traits<native_command_pool_vk>
+		{
+			using api_type = command_pool;
+			using handle_type = native_command_pool;
+		};
+
+		struct native_command_buffer_vk
+		{
+			render_device device;
+			VkCommandBuffer commandBuffer;
+		};
+
+		template <>
+		struct native_handle_traits<command_buffer>
+		{
+			using native_type = native_command_buffer_vk;
+			using handle_type = native_command_buffer;
+		};
+
+		template <>
+		struct native_handle_traits<native_command_buffer_vk>
+		{
+			using api_type = command_buffer;
+			using handle_type = native_command_buffer;
+		};
+
 		template <typename T>
 		rythe_always_inline typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
 		{
@@ -360,7 +413,7 @@ namespace vk
 		}
 	} // namespace
 
-	graphics_library init()
+	[[nodiscard]] graphics_library init()
 	{
 		native_graphics_library_vk* nativeGL = new native_graphics_library_vk();
 
@@ -536,7 +589,7 @@ namespace vk
 		return get_extension_index(get_available_instance_extensions(), extensionName) != rsl::npos;
 	}
 
-	instance graphics_library::create_instance(
+	[[nodiscard]] instance graphics_library::create_instance(
 		const application_info& _applicationInfo, const semver::version& apiVersion,
 		std::span<const rsl::hashed_string> layers, std::span<const rsl::hashed_string> extensions
 	)
@@ -668,7 +721,7 @@ namespace vk
 			}
 		}
 
-		VkApplicationInfo applicationInfo{
+		const VkApplicationInfo applicationInfo{
 			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 			.pNext = nullptr,
 			.pApplicationName = _applicationInfo.name.c_str(),
@@ -680,7 +733,7 @@ namespace vk
 			.apiVersion = VK_MAKE_API_VERSION(0, apiVersion.major, apiVersion.minor, apiVersion.patch),
 		};
 
-		VkInstanceCreateInfo instanceCreateInfo{
+		const VkInstanceCreateInfo instanceCreateInfo{
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 			.pNext = nullptr,
 			.flags = 0,
@@ -825,10 +878,10 @@ namespace vk
 	{
 		auto* impl = get_native_ptr(*this);
 
-        if (!impl)
-        {
-            return;
-        }
+		if (!impl)
+		{
+			return;
+		}
 
 		for (auto& device : impl->physicalDevices) { device.release(); }
 
@@ -847,7 +900,7 @@ namespace vk
 
 	namespace
 	{
-		physical_device copy_physical_device(physical_device src)
+		[[nodiscard]] physical_device copy_physical_device(physical_device src)
 		{
 			physical_device copy;
 			set_native_handle(copy, create_native_handle(new native_physical_device_vk(get_native_ref(src))));
@@ -855,7 +908,7 @@ namespace vk
 			return copy;
 		}
 
-		render_device create_render_device_no_extension_check(
+		[[nodiscard]] render_device create_render_device_no_extension_check(
 			physical_device& physicalDevice, std::span<const queue_description> queueDesciptions,
 			std::span<const rsl::cstring> extensions, std::span<const rsl::cstring> layers
 		)
@@ -913,7 +966,7 @@ namespace vk
 			VkPhysicalDeviceFeatures features;
 			impl.vkGetPhysicalDeviceFeatures(impl.physicalDevice, &features);
 
-			VkDeviceCreateInfo deviceCreateInfo{
+			const VkDeviceCreateInfo deviceCreateInfo{
 				.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 				.pNext = nullptr,
 				.flags = 0,
@@ -927,11 +980,14 @@ namespace vk
 			};
 
 			VkDevice device = VK_NULL_HANDLE;
-			VkResult result = impl.vkCreateDevice(impl.physicalDevice, &deviceCreateInfo, nullptr, &device);
 
-			if (result != VK_SUCCESS || device == VK_NULL_HANDLE)
 			{
-				return {};
+				VkResult result = impl.vkCreateDevice(impl.physicalDevice, &deviceCreateInfo, nullptr, &device);
+
+				if (result != VK_SUCCESS || device == VK_NULL_HANDLE)
+				{
+					return {};
+				}
 			}
 
 			auto* renderDevicePtr = new native_render_device_vk();
@@ -950,6 +1006,9 @@ namespace vk
 				delete renderDevicePtr;
 				return {};
 			}
+
+			renderDevicePtr->physicalDevice = copy_physical_device(physicalDevice);
+			set_native_handle(impl.renderDevice, create_native_handle(renderDevicePtr));
 
 			renderDevicePtr->queues.resize(queueDesciptions.size());
 			for (rsl::size_type i = 0; i < queueCreateInfos.size(); i++)
@@ -985,14 +1044,11 @@ namespace vk
 				}
 			}
 
-			renderDevicePtr->physicalDevice = copy_physical_device(physicalDevice);
-
-			set_native_handle(impl.renderDevice, create_native_handle(renderDevicePtr));
 			return impl.renderDevice;
 		}
 	} // namespace
 
-	surface instance::create_surface()
+	[[nodiscard]] surface instance::create_surface()
 	{
 		auto& impl = get_native_ref(*this);
 
@@ -1057,7 +1113,7 @@ namespace vk
 		return result;
 	}
 
-	render_device instance::auto_select_and_create_device(
+	[[nodiscard]] render_device instance::auto_select_and_create_device(
 		const physical_device_description& physicalDeviceDescription,
 		std::span<const queue_description> queueDesciptions, surface surface,
 		std::span<const rsl::hashed_string> extensions
@@ -1257,7 +1313,7 @@ namespace vk
 		auto& lib = get_native_ref(graphicsLib);
 
 #define INSTANCE_LEVEL_VULKAN_FUNCTION(name)                                                                           \
-	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                     \
+	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                      \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1269,7 +1325,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                             \
+			name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                              \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1280,7 +1336,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_PHYSICAL_DEVICE_VULKAN_FUNCTION(name)                                                           \
-	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                     \
+	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                      \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1292,7 +1348,7 @@ namespace vk
 	{                                                                                                                  \
 		if (std::string_view(enabledExtension) == std::string_view(extension))                                         \
 		{                                                                                                              \
-			name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                             \
+			name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                              \
 			if (!name)                                                                                                 \
 			{                                                                                                          \
 				std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                          \
@@ -1303,7 +1359,7 @@ namespace vk
 	}
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name)                                                                    \
-	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                     \
+	name = std::bit_cast<PFN_##name>(lib.vkGetInstanceProcAddr(instance, #name));                                      \
 	if (!name)                                                                                                         \
 	{                                                                                                                  \
 		std::cout << "Could not load instance-level Vulkan function \"" #name "\"\n";                                  \
@@ -1525,9 +1581,7 @@ namespace vk
 			auto& nativeSurface = get_native_ref(_surface);
 
 			VkSurfaceCapabilitiesKHR vkSurfaceCaps;
-			impl.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-				impl.physicalDevice, nativeSurface.surface, &vkSurfaceCaps
-			);
+			impl.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(impl.physicalDevice, nativeSurface.surface, &vkSurfaceCaps);
 
 			impl.surfaceCaps.minImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.minImageCount);
 			impl.surfaceCaps.maxImageCount = static_cast<rsl::size_type>(vkSurfaceCaps.maxImageCount);
@@ -2021,7 +2075,7 @@ namespace vk
 		return get_native_ref(*this).renderDevice;
 	}
 
-	render_device physical_device::create_render_device(
+	[[nodiscard]] render_device physical_device::create_render_device(
 		std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions
 	)
 	{
@@ -2136,6 +2190,24 @@ namespace vk
 		return true;
 	}
 
+	queue::operator bool() const noexcept
+	{
+		auto* impl = get_native_ptr(*this);
+		return impl != nullptr && impl->queue != VK_NULL_HANDLE;
+	}
+
+	void queue::release()
+	{
+		auto* impl = get_native_ptr(*this);
+		if (!impl)
+		{
+			return;
+		}
+
+		m_nativeQueue = invalid_native_queue;
+		delete impl;
+	}
+
 	rsl::size_type queue::get_index() const noexcept
 	{
 		return get_native_ref(*this).queueIndex;
@@ -2155,5 +2227,188 @@ namespace vk
 	{
 		return get_native_ref(*this).family;
 	}
+
+	namespace
+	{
+		bool create_command_pool(queue q, command_pool& commandPool, VkCommandPoolCreateFlags flags)
+		{
+			auto& impl = get_native_ref(q);
+			auto& renderDevice = get_native_ref(impl.renderDevice);
+			const VkCommandPoolCreateInfo commandPoolCreateInfo{
+				.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = flags,
+				.queueFamilyIndex = static_cast<rsl::uint32>(impl.familyIndex),
+			};
+
+			VkCommandPool vkCommandPool = VK_NULL_HANDLE;
+			VkResult result =
+				renderDevice.vkCreateCommandPool(renderDevice.device, &commandPoolCreateInfo, nullptr, &vkCommandPool);
+
+			if (result != VK_SUCCESS || vkCommandPool == VK_NULL_HANDLE)
+			{
+				std::cout << "Failed to create command pool for queue " << impl.queueIndex << '\n';
+				return false;
+			}
+
+			native_command_pool_vk* nativeCommandPool = new native_command_pool_vk();
+
+			nativeCommandPool->commandPool = vkCommandPool;
+			nativeCommandPool->renderDevice = impl.renderDevice;
+
+			set_native_handle(commandPool, create_native_handle(nativeCommandPool));
+			return true;
+		}
+	} // namespace
+
+	[[nodiscard]] persistent_command_pool queue::create_persistent_command_pool(bool protectedCommandBuffers)
+	{
+		persistent_command_pool commandPool;
+
+		if (!create_command_pool(
+				*this, commandPool,
+				VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT |
+					(protectedCommandBuffers ? VK_COMMAND_POOL_CREATE_PROTECTED_BIT : 0)
+			))
+		{
+			return {};
+		}
+
+		return commandPool;
+	}
+
+	transient_command_pool queue::create_transient_command_pool(bool protectedCommandBuffers)
+	{
+		transient_command_pool commandPool;
+
+		if (!create_command_pool(
+				*this, commandPool,
+				VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
+					(protectedCommandBuffers ? VK_COMMAND_POOL_CREATE_PROTECTED_BIT : 0)
+			))
+		{
+			return {};
+		}
+
+		return commandPool;
+	}
+
+	command_pool::operator bool() const noexcept
+	{
+		auto* impl = get_native_ptr(*this);
+		return impl != nullptr && impl->commandPool != VK_NULL_HANDLE;
+	}
+
+	void persistent_command_pool::release()
+	{
+		auto* impl = get_native_ptr(*this);
+		if (!impl)
+		{
+			return;
+		}
+
+		auto& renderDevice = get_native_ref(impl->renderDevice);
+
+		renderDevice.vkDestroyCommandPool(renderDevice.device, impl->commandPool, nullptr);
+
+		m_nativeCommandPool = invalid_native_command_pool;
+		delete impl;
+	}
+
+	namespace
+	{
+		[[maybe_unused]] bool create_command_buffers(
+			command_pool& pool, std::span<command_buffer> buffers, std::span<VkCommandBuffer> commandBuffersBuffer,
+			command_buffer_level level
+		)
+		{
+			rsl_assert_consistent(buffers.size() <= commandBuffersBuffer.size());
+
+			auto& impl = get_native_ref(pool);
+			auto& renderDevice = get_native_ref(impl.renderDevice);
+
+			const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
+				.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+				.pNext = nullptr,
+				.commandPool = impl.commandPool,
+				.level =
+					(level == command_buffer_level::primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY
+															: VK_COMMAND_BUFFER_LEVEL_SECONDARY),
+				.commandBufferCount = static_cast<rsl::uint32>(buffers.size()),
+			};
+
+			VkResult result = renderDevice.vkAllocateCommandBuffers(
+				renderDevice.device, &commandBufferAllocateInfo, commandBuffersBuffer.data()
+			);
+
+			if (result != VK_SUCCESS)
+			{
+				return false;
+			}
+
+			for (rsl::size_type i = 0; i < buffers.size(); i++)
+			{
+				command_buffer& buffer = buffers[i];
+				auto* nativeCommandBuffer = get_native_ptr(buffer);
+				if (!nativeCommandBuffer)
+				{
+					nativeCommandBuffer = new native_command_buffer_vk();
+					set_native_handle(buffer, create_native_handle(nativeCommandBuffer));
+				}
+				else
+				{
+					rsl_assert_consistent(nativeCommandBuffer->commandBuffer == VK_NULL_HANDLE);
+				}
+
+				nativeCommandBuffer->commandBuffer = commandBuffersBuffer[i];
+				nativeCommandBuffer->device = impl.renderDevice;
+			}
+
+			return true;
+		}
+	} // namespace
+
+	void
+	persistent_command_pool::reserve([[maybe_unused]] rsl::size_type count, [[maybe_unused]] command_buffer_level level)
+	{
+	}
+
+	command_buffer persistent_command_pool::get_command_buffer([[maybe_unused]] command_buffer_level level)
+	{
+		return command_buffer();
+	}
+
+	void transient_command_pool::release()
+	{
+		auto* impl = get_native_ptr(*this);
+		if (!impl)
+		{
+			return;
+		}
+
+		auto& renderDevice = get_native_ref(impl->renderDevice);
+
+		renderDevice.vkDestroyCommandPool(renderDevice.device, impl->commandPool, nullptr);
+
+		m_nativeCommandPool = invalid_native_command_pool;
+		delete impl;
+	}
+
+	void
+	transient_command_pool::reserve([[maybe_unused]] rsl::size_type count, [[maybe_unused]] command_buffer_level level)
+	{
+	}
+
+	command_buffer transient_command_pool::get_command_buffer([[maybe_unused]] command_buffer_level level)
+	{
+		return command_buffer();
+	}
+
+	command_buffer::operator bool() const noexcept
+	{
+		return false;
+	}
+
+	void command_buffer::release() {}
 
 } // namespace vk

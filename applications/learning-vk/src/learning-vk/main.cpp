@@ -24,7 +24,7 @@ Wndproc(
 
 #endif
 
-int wmain()
+int main()
 {
 	vk::graphics_library lib = vk::init();
 
@@ -97,17 +97,17 @@ int wmain()
 
 	vk::queue_description queueDescs[] = {
 		{
-		 .priority = vk::queue_priority::high,
-		 .requiredFeatures = vk::queue_feature_flags::graphics,
+         .priority = vk::queue_priority::high,
+         .requiredFeatures = vk::queue_feature_flags::graphics,
 		 },
 		{
-		 .requiredFeatures = vk::queue_feature_flags::compute,
+         .requiredFeatures = vk::queue_feature_flags::compute,
 		 },
 		{
-		 .requiredFeatures = vk::queue_feature_flags::transfer,
+         .requiredFeatures = vk::queue_feature_flags::transfer,
 		 },
 		{
-		 .requiredFeatures = vk::queue_feature_flags::present,
+         .requiredFeatures = vk::queue_feature_flags::present,
 		 },
 	};
 
@@ -348,9 +348,12 @@ int wmain()
 		std::cout << "\tpriority: " << vk::to_string(queue.get_priority()) << '\n';
 	}
 
-	[[maybe_unused]] auto graphicsQueue = queues[0];
-	[[maybe_unused]] auto computeQueue = queues[1];
-	[[maybe_unused]] auto transferQueue = queues[2];
+	auto graphicsQueue = queues[0];
+	auto computeQueue = queues[1];
+	auto transferQueue = queues[2];
+	auto presentQueue = queues[3];
+
+	auto presentCommandPool = presentQueue.create_transient_command_pool();
 
 #if RYTHE_PLATFORM_WINDOWS
 	MSG message;
@@ -360,6 +363,13 @@ int wmain()
 		DispatchMessage(&message);
 	};
 #endif
+
+	presentCommandPool.release();
+
+	graphicsQueue.release();
+	computeQueue.release();
+	transferQueue.release();
+	presentQueue.release();
 
 	renderDevice.release();
 
