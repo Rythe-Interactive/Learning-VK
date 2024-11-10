@@ -134,3 +134,4 @@ docs/venv
 build/.cmake
 build/CMakeFiles
 build/CMakeCache.txt
+**.vcxitems

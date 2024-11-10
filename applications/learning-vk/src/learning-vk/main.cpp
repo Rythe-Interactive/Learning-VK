@@ -97,17 +97,17 @@ int main()
 
 	vk::queue_description queueDescs[] = {
 		{
-         .priority = vk::queue_priority::high,
-         .requiredFeatures = vk::queue_feature_flags::graphics,
+		 .priority = vk::queue_priority::high,
+		 .requiredFeatures = vk::queue_feature_flags::graphics,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::compute,
+		 .requiredFeatures = vk::queue_feature_flags::compute,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::transfer,
+		 .requiredFeatures = vk::queue_feature_flags::transfer,
 		 },
 		{
-         .requiredFeatures = vk::queue_feature_flags::present,
+		 .requiredFeatures = vk::queue_feature_flags::present,
 		 },
 	};
 
@@ -353,7 +353,9 @@ int main()
 	auto transferQueue = queues[2];
 	auto presentQueue = queues[3];
 
-	auto presentCommandPool = presentQueue.create_transient_command_pool();
+	auto presentCommandPool = presentQueue.create_persistent_command_pool();
+
+	auto presentCommandBuffer = presentCommandPool.get_command_buffer();
 
 #if RYTHE_PLATFORM_WINDOWS
 	MSG message;
@@ -363,6 +365,8 @@ int main()
 		DispatchMessage(&message);
 	};
 #endif
+
+	presentCommandBuffer.return_to_pool();
 
 	presentCommandPool.release();
 

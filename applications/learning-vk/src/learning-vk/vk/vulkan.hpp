@@ -18,6 +18,23 @@
 
 namespace vk
 {
+#define DECLARE_API_TYPE(type)                                                                                         \
+	DECLARE_OPAQUE_HANDLE(native_##type);                                                                              \
+	class type;                                                                                                        \
+	static void set_native_handle(type&, native_##type);
+
+
+	DECLARE_API_TYPE(graphics_library);
+	DECLARE_API_TYPE(surface)
+	DECLARE_API_TYPE(instance)
+	DECLARE_API_TYPE(physical_device)
+	DECLARE_API_TYPE(render_device)
+	DECLARE_API_TYPE(queue)
+	DECLARE_API_TYPE(command_pool)
+	DECLARE_API_TYPE(command_buffer)
+
+#undef DECLARE_API_TYPE
+
 	DECLARE_OPAQUE_HANDLE(native_window_handle);
 
 #if RYTHE_PLATFORM_WINDOWS
@@ -76,8 +93,6 @@ namespace vk
 	};
 
 	class instance;
-
-	DECLARE_OPAQUE_HANDLE(native_graphics_library);
 
 	class graphics_library
 	{
@@ -362,7 +377,7 @@ namespace vk
 
 	struct queue_description
 	{
-		rsl::size_type queueFamilyIndexOverride = -1ull;
+		rsl::size_type queueFamilyIndexOverride = rsl::npos;
 		queue_priority priority = queue_priority::normal;
 
 		// For auto family selection
@@ -444,8 +459,6 @@ namespace vk
 	class physical_device;
 	class render_device;
 
-	DECLARE_OPAQUE_HANDLE(native_surface);
-
 	class surface
 	{
 	public:
@@ -460,8 +473,6 @@ namespace vk
 
 		friend void set_native_handle(surface&, native_surface);
 	};
-
-	DECLARE_OPAQUE_HANDLE(native_instance);
 
 	class instance
 	{
@@ -491,8 +502,6 @@ namespace vk
 
 		friend void set_native_handle(instance&, native_instance);
 	};
-
-	DECLARE_OPAQUE_HANDLE(native_physical_device);
 
 	class physical_device
 	{
@@ -529,8 +538,6 @@ namespace vk
 		friend void set_native_handle(physical_device&, native_physical_device);
 	};
 
-	DECLARE_OPAQUE_HANDLE(native_render_device);
-
 	class queue;
 
 	class render_device
@@ -552,8 +559,6 @@ namespace vk
 
 	class transient_command_pool;
 	class persistent_command_pool;
-
-	DECLARE_OPAQUE_HANDLE(native_queue);
 
 	class queue
 	{
@@ -577,15 +582,13 @@ namespace vk
 		friend void set_native_handle(queue&, native_queue);
 	};
 
-    enum struct command_buffer_level : rsl::uint8
-    {
-        primary,
-        secondary,
-    };
+	enum struct command_buffer_level : rsl::uint8
+	{
+		primary,
+		secondary,
+	};
 
 	class command_buffer;
-
-	DECLARE_OPAQUE_HANDLE(native_command_pool);
 
 	class command_pool
 	{
@@ -599,7 +602,7 @@ namespace vk
 		virtual rsl::size_type
 		get_unused_count(command_buffer_level level = command_buffer_level::primary) const noexcept = 0;
 
-        virtual void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) = 0;
+		virtual void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) = 0;
 		virtual command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) = 0;
 		virtual void return_command_buffer(command_buffer& commandBuffer) = 0;
 
@@ -610,7 +613,7 @@ namespace vk
 		friend void set_native_handle(command_pool&, native_command_pool);
 	};
 
-    class persistent_command_pool : public command_pool
+	class persistent_command_pool : public command_pool
 	{
 	public:
 		using command_pool::operator bool;
@@ -624,25 +627,23 @@ namespace vk
 		void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
 		command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) override;
 		void return_command_buffer(command_buffer& commandBuffer) override;
-    };
+	};
 
-    class transient_command_pool : public command_pool
-    {
+	class transient_command_pool : public command_pool
+	{
 	public:
-        using command_pool::operator bool;
+		using command_pool::operator bool;
 
-        void release() override;
+		void release() override;
 
 		rsl::size_type get_capacity(command_buffer_level level = command_buffer_level::primary) const noexcept override;
 		rsl::size_type
 		get_unused_count(command_buffer_level level = command_buffer_level::primary) const noexcept override;
 
-        void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
+		void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
 		command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) override;
 		void return_command_buffer(command_buffer& commandBuffer) override;
-    };
-
-	DECLARE_OPAQUE_HANDLE(native_command_buffer);
+	};
 
 	class command_buffer
 	{
