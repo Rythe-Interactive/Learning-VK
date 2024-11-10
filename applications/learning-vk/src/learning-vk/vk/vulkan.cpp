@@ -341,6 +341,18 @@ namespace vk
 		{
 			render_device renderDevice;
 
+			std::vector<VkCommandBuffer> commandBuffersBuffer;
+
+			struct commandBufferPool
+			{
+				rsl::size_type lastUnusedIndex = 0ull;
+				rsl::size_type unusedCount = 0ull;
+				std::vector<command_buffer> commandBuffers;
+			};
+
+			commandBufferPool primaryCommandBuffers;
+			commandBufferPool secondaryCommandBuffers;
+
 			VkCommandPool commandPool = VK_NULL_HANDLE;
 		};
 
@@ -372,10 +384,50 @@ namespace vk
 			using handle_type = native_command_pool;
 		};
 
+		namespace
+		{
+			struct non_descript_command_pool
+			{
+				union
+				{
+					persistent_command_pool persistent;
+					transient_command_pool transient;
+				} data = {.persistent = {}};
+
+				bool isPersistent = true;
+
+				const command_pool& get_pool() const
+				{
+					return *(
+						isPersistent ? static_cast<const command_pool*>(&data.persistent)
+									 : static_cast<const command_pool*>(&data.transient)
+					);
+				}
+
+				command_pool& get_pool()
+				{
+					return *(
+						isPersistent ? static_cast<command_pool*>(&data.persistent)
+									 : static_cast<command_pool*>(&data.transient)
+					);
+				}
+			};
+		} // namespace
+
 		struct native_command_buffer_vk
 		{
 			render_device device;
-			VkCommandBuffer commandBuffer;
+
+			non_descript_command_pool commandPoolStorage;
+
+			const command_pool& get_pool() const { return commandPoolStorage.get_pool(); }
+			command_pool& get_pool() { return commandPoolStorage.get_pool(); }
+
+			rsl::size_type nextUnusedIndex = rsl::npos;
+			rsl::size_type indexInPool = rsl::npos;
+			command_buffer_level level;
+
+			VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
 		};
 
 		template <>
@@ -2315,16 +2367,29 @@ namespace vk
 		delete impl;
 	}
 
+	rsl::size_type persistent_command_pool::get_capacity(command_buffer_level level) const noexcept
+	{
+		auto& impl = get_native_ref(*this);
+		return level == command_buffer_level::primary ? impl.primaryCommandBuffers.commandBuffers.size()
+													  : impl.secondaryCommandBuffers.commandBuffers.size();
+	}
+
+	rsl::size_type persistent_command_pool::get_unused_count(command_buffer_level level) const noexcept
+	{
+		auto& impl = get_native_ref(*this);
+		return level == command_buffer_level::primary ? impl.primaryCommandBuffers.unusedCount
+													  : impl.secondaryCommandBuffers.unusedCount;
+	}
+
 	namespace
 	{
 		[[maybe_unused]] bool create_command_buffers(
-			command_pool& pool, std::span<command_buffer> buffers, std::span<VkCommandBuffer> commandBuffersBuffer,
-			command_buffer_level level
+			native_command_pool_vk& impl, std::span<command_buffer> buffers,
+			std::span<VkCommandBuffer> commandBuffersBuffer, command_buffer_level level
 		)
 		{
 			rsl_assert_consistent(buffers.size() <= commandBuffersBuffer.size());
 
-			auto& impl = get_native_ref(pool);
 			auto& renderDevice = get_native_ref(impl.renderDevice);
 
 			const VkCommandBufferAllocateInfo commandBufferAllocateInfo = {
@@ -2355,28 +2420,87 @@ namespace vk
 					nativeCommandBuffer = new native_command_buffer_vk();
 					set_native_handle(buffer, create_native_handle(nativeCommandBuffer));
 				}
-				else
-				{
-					rsl_assert_consistent(nativeCommandBuffer->commandBuffer == VK_NULL_HANDLE);
-				}
 
-				nativeCommandBuffer->commandBuffer = commandBuffersBuffer[i];
 				nativeCommandBuffer->device = impl.renderDevice;
+				nativeCommandBuffer->nextUnusedIndex = i + 1;
+				nativeCommandBuffer->indexInPool = i;
+				nativeCommandBuffer->level = level;
+				nativeCommandBuffer->commandBuffer = commandBuffersBuffer[i];
 			}
 
 			return true;
 		}
 	} // namespace
 
-	void
-	persistent_command_pool::reserve([[maybe_unused]] rsl::size_type count, [[maybe_unused]] command_buffer_level level)
+	void persistent_command_pool::reserve(rsl::size_type count, command_buffer_level level)
 	{
+		auto& impl = get_native_ref(*this);
+
+		auto& commandBufferPool =
+			level == command_buffer_level::primary ? impl.primaryCommandBuffers : impl.secondaryCommandBuffers;
+
+		auto oldCount = commandBufferPool.commandBuffers.size();
+
+		if (oldCount >= count)
+		{
+			return;
+		}
+
+		rsl::size_type additionalCount = oldCount - count;
+		commandBufferPool.commandBuffers.resize(count);
+		if (additionalCount > impl.commandBuffersBuffer.size())
+		{
+			impl.commandBuffersBuffer.resize(additionalCount);
+		}
+
+		rsl_soft_assert_consistent(create_command_buffers(
+			impl, std::span(commandBufferPool.commandBuffers.data() + oldCount, additionalCount),
+			impl.commandBuffersBuffer, level
+		));
+
+		commandBufferPool.unusedCount += additionalCount;
 	}
 
-	command_buffer persistent_command_pool::get_command_buffer([[maybe_unused]] command_buffer_level level)
+	command_buffer persistent_command_pool::get_command_buffer(command_buffer_level level)
 	{
-		return command_buffer();
+		auto& impl = get_native_ref(*this);
+
+		auto& commandBufferPool =
+			level == command_buffer_level::primary ? impl.primaryCommandBuffers : impl.secondaryCommandBuffers;
+
+		if (commandBufferPool.unusedCount == 0)
+		{
+			reserve(commandBufferPool.lastUnusedIndex + 1, level);
+		}
+		else
+		{
+			rsl_assert_consistent(commandBufferPool.lastUnusedIndex < commandBufferPool.commandBuffers.size());
+		}
+
+		command_buffer commandBuffer = commandBufferPool.commandBuffers[commandBufferPool.lastUnusedIndex];
+
+		commandBufferPool.lastUnusedIndex = get_native_ref(commandBuffer).nextUnusedIndex;
+		commandBufferPool.unusedCount--;
+
+		return commandBuffer;
 	}
+
+	void persistent_command_pool::return_command_buffer(command_buffer& commandBuffer)
+	{
+		auto& impl = get_native_ref(*this);
+        auto& nativeCommandBuffer = get_native_ref(commandBuffer);
+
+		auto& commandBufferPool = nativeCommandBuffer.level == command_buffer_level::primary
+									  ? impl.primaryCommandBuffers
+									  : impl.secondaryCommandBuffers;
+
+        nativeCommandBuffer.nextUnusedIndex = commandBufferPool.lastUnusedIndex;
+		commandBufferPool.lastUnusedIndex = nativeCommandBuffer.indexInPool;
+
+        // destroy command buffer
+
+        set_native_handle(commandBuffer, invalid_native_command_buffer);
+    }
 
 	void transient_command_pool::release()
 	{
@@ -2409,6 +2533,13 @@ namespace vk
 		return false;
 	}
 
-	void command_buffer::release() {}
+	void command_buffer::return_to_pool()
+	{
+		auto* impl = get_native_ptr(*this);
+		if (impl)
+		{
+			impl->get_pool().return_command_buffer(*this);
+		}
+	}
 
 } // namespace vk

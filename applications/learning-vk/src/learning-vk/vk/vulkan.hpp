@@ -594,8 +594,14 @@ namespace vk
 
 		virtual void release() = 0;
 
+		virtual rsl::size_type
+		get_capacity(command_buffer_level level = command_buffer_level::primary) const noexcept = 0;
+		virtual rsl::size_type
+		get_unused_count(command_buffer_level level = command_buffer_level::primary) const noexcept = 0;
+
         virtual void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) = 0;
 		virtual command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) = 0;
+		virtual void return_command_buffer(command_buffer& commandBuffer) = 0;
 
 		rythe_always_inline native_command_pool get_native_handle() const noexcept { return m_nativeCommandPool; }
 
@@ -611,8 +617,13 @@ namespace vk
 
 		void release() override;
 
+		rsl::size_type get_capacity(command_buffer_level level = command_buffer_level::primary) const noexcept override;
+		rsl::size_type
+		get_unused_count(command_buffer_level level = command_buffer_level::primary) const noexcept override;
+
 		void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
 		command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) override;
+		void return_command_buffer(command_buffer& commandBuffer) override;
     };
 
     class transient_command_pool : public command_pool
@@ -622,8 +633,13 @@ namespace vk
 
         void release() override;
 
+		rsl::size_type get_capacity(command_buffer_level level = command_buffer_level::primary) const noexcept override;
+		rsl::size_type
+		get_unused_count(command_buffer_level level = command_buffer_level::primary) const noexcept override;
+
         void reserve(rsl::size_type count, command_buffer_level level = command_buffer_level::primary) override;
 		command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) override;
+		void return_command_buffer(command_buffer& commandBuffer) override;
     };
 
 	DECLARE_OPAQUE_HANDLE(native_command_buffer);
@@ -633,7 +649,7 @@ namespace vk
 	public:
 		operator bool() const noexcept;
 
-		void release();
+		void return_to_pool();
 
 		rythe_always_inline native_command_buffer get_native_handle() const noexcept { return m_nativeCommandBuffer; }
 
