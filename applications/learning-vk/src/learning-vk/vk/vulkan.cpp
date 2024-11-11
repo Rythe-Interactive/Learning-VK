@@ -36,12 +36,100 @@ namespace vk
 				static_cast<rsl::uint8>(VK_API_VERSION_PATCH(vkVersion)),
 			};
 		}
+
+		[[nodiscard]] [[rythe_allocating]] void* defaultAllocFunc(rsl::size_type size, void*)
+		{
+			void* mem = ::operator new(size);
+			return mem;
+		}
+
+		[[nodiscard]] [[rythe_allocating]] void*
+		defaultAllocAlignedFunc(rsl::size_type size, rsl::size_type alignment, void*)
+		{
+			void* mem = ::operator new(size, std::align_val_t{alignment});
+			return mem;
+		}
+
+		[[nodiscard]] [[rythe_allocating]] void*
+		defaultReallocFunc(void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment, void*)
+		{
+			void* mem = nullptr;
+
+			if (newSize != 0)
+			{
+				if (alignment != 0)
+				{
+					mem = ::operator new(newSize, std::align_val_t{alignment});
+				}
+				else
+				{
+					mem = ::operator new(newSize);
+				}
+
+				std::memcpy(mem, ptr, std::min(oldSize, newSize));
+			}
+
+			::operator delete(ptr, oldSize);
+
+			return mem;
+		}
+
+		void defaultFreeFunc(void* ptr, rsl::size_type size, void*)
+		{
+			::operator delete(ptr, size);
+		}
+
+		void validateAllocator(allocator& alloc)
+		{
+			if (!alloc.allocFunc || !alloc.freeFunc || !alloc.allocAlignedFunc || !alloc.reallocFunc)
+			{
+				alloc.allocFunc = &defaultAllocFunc;
+				alloc.allocAlignedFunc = &defaultAllocAlignedFunc;
+				alloc.reallocFunc = &defaultReallocFunc;
+				alloc.freeFunc = &defaultFreeFunc;
+				alloc.userData = nullptr;
+			}
+		}
+
+		template <typename T, typename... Args>
+		[[nodiscard]] T* allocate(allocator& alloc, rsl::size_type count = 1, Args&&... args)
+		{
+			T* mem = static_cast<T*>(alloc.allocFunc(sizeof(T) * count, alloc.userData));
+
+			if constexpr (std::is_trivially_constructible_v<T> && sizeof...(Args) == 0)
+			{
+				std::memset(mem, 0, sizeof(T) * count);
+			}
+			else
+			{
+				for (rsl::size_type i = 0; i < count; i++) { new (&mem[i]) T(std::forward<Args>(args)...); }
+			}
+
+			return mem;
+		}
+
+		template <typename T>
+		void deallocate(allocator& alloc, T* ptr, rsl::size_type count = 1)
+		{
+			if constexpr (!std::is_trivially_destructible_v<T>)
+			{
+				for (rsl::size_type i = 0; i < count; i++) { ptr[i].~T(); }
+			}
+
+			alloc.freeFunc(ptr, sizeof(T) * count, alloc.userData);
+		}
+
 	} // namespace
 
 #if RYTHE_PLATFORM_WINDOWS
 	[[nodiscard]] native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(new native_window_info_win32(windowInfo));
+		allocator alloc = windowInfo.alloc;
+		validateAllocator(alloc);
+
+		auto* ptr = allocate<native_window_info_win32>(alloc, 1, windowInfo);
+		ptr->alloc = alloc;
+		return std::bit_cast<native_window_handle>(ptr);
 	}
 
 	namespace
@@ -60,7 +148,12 @@ namespace vk
 	#ifdef RYTHE_SURFACE_XCB
 	[[nodiscard]] native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(new native_window_info_xcb(windowInfo));
+		allocator alloc = windowInfo.alloc;
+		validateAllocator(alloc);
+
+		auto* ptr = allocate<native_window_info_xcb>(alloc, 1, windowInfo);
+		ptr->alloc = alloc;
+		return std::bit_cast<native_window_handle>(ptr);
 	}
 
 	namespace
@@ -78,7 +171,12 @@ namespace vk
 	#elif RYTHE_SURFACE_XLIB
 	[[nodiscard]] native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo)
 	{
-		return std::bit_cast<native_window_handle>(new native_window_info_xlib(windowInfo));
+		allocator alloc = windowInfo.alloc;
+		validateAllocator(alloc);
+
+		auto* ptr = allocate<native_window_info_xlib>(alloc, 1, windowInfo);
+		ptr->alloc = alloc;
+		return std::bit_cast<native_window_handle>(ptr);
 	}
 
 	namespace
@@ -99,12 +197,15 @@ namespace vk
 	void release_window_handle(native_window_handle handle)
 	{
 #if RYTHE_PLATFORM_WINDOWS
-		delete std::bit_cast<native_window_info_win32*>(handle);
+		auto* ptr = std::bit_cast<native_window_info_win32*>(handle);
+		deallocate<native_window_info_win32>(ptr->alloc, ptr);
 #elif RYTHE_PLATFORM_LINUX
 	#ifdef RYTHE_SURFACE_XCB
-		delete std::bit_cast<native_window_info_xcb*>(handle);
+		auto* ptr = std::bit_cast<native_window_info_xcb*>(handle);
+		deallocate<native_window_info_xcb>(ptr->alloc, ptr);
 	#elif RYTHE_SURFACE_XLIB
-		delete std::bit_cast<native_window_info_xlib*>(handle);
+		auto* ptr = std::bit_cast<native_window_info_xlib*>(handle);
+		deallocate<native_window_info_xlib>(ptr->alloc, ptr);
 	#endif
 #endif
 	}
@@ -162,6 +263,9 @@ namespace vk
 			std::vector<layer_properties> availableInstanceLayers;
 			std::vector<extension_properties> availableInstanceExtensions;
 
+			allocator alloc;
+			VkAllocationCallbacks allocCallbacks;
+
 #define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
 #define GLOBAL_LEVEL_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
 #include "impl/list_of_vulkan_functions.inl"
@@ -201,6 +305,8 @@ namespace vk
 			std::vector<physical_device> physicalDevices;
 			application_info applicationInfo;
 			semver::version apiVersion;
+			allocator* alloc = nullptr;
+			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			std::vector<layer_properties> enabledLayers;
 			std::vector<extension_properties> enabledExtensions;
@@ -226,6 +332,10 @@ namespace vk
 		struct native_surface_vk
 		{
 			VkSurfaceKHR surface = VK_NULL_HANDLE;
+
+			allocator* alloc = nullptr;
+			VkAllocationCallbacks* allocCallbacks = nullptr;
+
 			instance instance;
 		};
 
@@ -263,6 +373,8 @@ namespace vk
 			std::vector<extension_properties> availableExtensions;
 			std::vector<queue_family_properties> availableQueueFamilies;
 
+			allocator* alloc = nullptr;
+			VkAllocationCallbacks* allocCallbacks = nullptr;
 			instance instance;
 
 			VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -292,6 +404,8 @@ namespace vk
 #include "impl/list_of_vulkan_functions.inl"
 
 			physical_device physicalDevice;
+			allocator* alloc = nullptr;
+			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			std::vector<queue> queues;
 
@@ -315,6 +429,8 @@ namespace vk
 		struct native_queue_vk
 		{
 			render_device renderDevice;
+			allocator* alloc = nullptr;
+			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			rsl::size_type queueIndex;
 			rsl::size_type familyIndex;
@@ -340,6 +456,8 @@ namespace vk
 		struct native_command_pool_vk
 		{
 			render_device renderDevice;
+			allocator* alloc = nullptr;
+			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			std::vector<VkCommandBuffer> commandBuffersBuffer;
 
@@ -396,9 +514,9 @@ namespace vk
 
 				bool isPersistent = true;
 
-                void set(persistent_command_pool pool)
-                {
-                    data.persistent = pool;
+				void set(persistent_command_pool pool)
+				{
+					data.persistent = pool;
 					isPersistent = true;
 				}
 				void set(transient_command_pool pool)
@@ -456,13 +574,15 @@ namespace vk
 		};
 
 		template <typename T>
-		[[rythe_always_inline]] typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
+		[[nodiscard]] [[rythe_always_inline]] typename native_handle_traits<T>::native_type*
+		get_native_ptr(const T& inst)
 		{
 			return std::bit_cast<typename native_handle_traits<T>::native_type*>(inst.get_native_handle());
 		}
 
 		template <typename T>
-		[[rythe_always_inline]] typename native_handle_traits<T>::native_type& get_native_ref(const T& inst)
+		[[nodiscard]] [[rythe_always_inline]] typename native_handle_traits<T>::native_type&
+		get_native_ref(const T& inst)
 		{
 			auto* ptr = get_native_ptr(inst);
 			rsl_assert_invalid_object(ptr);
@@ -470,22 +590,79 @@ namespace vk
 		}
 
 		template <typename T>
-		[[rythe_always_inline]] auto create_native_handle(T* inst)
+		[[nodiscard]] [[rythe_always_inline]] auto create_native_handle(T* inst)
 		{
 			return std::bit_cast<typename native_handle_traits<T>::handle_type>(inst);
 		}
+
+		void* defaultVKAllocFunc(void* userData, rsl::size_type size, rsl::size_type, VkSystemAllocationScope)
+		{
+			allocator* alloc = static_cast<allocator*>(userData);
+			void* mem = alloc->allocFunc(size + sizeof(rsl::size_type), alloc->userData);
+			*static_cast<rsl::size_type*>(mem) = size + sizeof(rsl::size_type);
+			return static_cast<rsl::byte*>(mem) + sizeof(rsl::size_type);
+		}
+
+		void defaultVKFreeFunc(void* userData, void* ptr)
+		{
+			if (!ptr)
+			{
+				return;
+			}
+
+			allocator* alloc = static_cast<allocator*>(userData);
+			void* originalPtr = static_cast<void*>(static_cast<rsl::byte*>(ptr) - sizeof(rsl::size_type));
+			rsl::size_type size = *static_cast<rsl::size_type*>(originalPtr);
+
+			alloc->freeFunc(originalPtr, size, alloc->userData);
+		}
+
+		void* defaultVKReallocationFunc(
+			void* userData, void* ptr, rsl::size_type size, rsl::size_type, VkSystemAllocationScope
+		)
+		{
+			allocator* alloc = static_cast<allocator*>(userData);
+
+			rsl::size_type oldSize =
+				*static_cast<rsl::size_type*>(static_cast<void*>(static_cast<rsl::byte*>(ptr) - sizeof(rsl::size_type))
+				);
+
+			void* mem = alloc->reallocFunc(
+				static_cast<rsl::byte*>(ptr) - sizeof(rsl::size_type), oldSize, size + sizeof(rsl::size_type), 0,
+				alloc->userData
+			);
+
+			*static_cast<rsl::size_type*>(mem) = size + sizeof(rsl::size_type);
+			return static_cast<rsl::byte*>(mem) + sizeof(rsl::size_type);
+		}
+
+		VkAllocationCallbacks createVKAllocator(allocator* alloc)
+		{
+			return VkAllocationCallbacks{
+				.pUserData = alloc,
+				.pfnAllocation = &defaultVKAllocFunc,
+				.pfnReallocation = &defaultVKReallocationFunc,
+				.pfnFree = &defaultVKFreeFunc,
+				.pfnInternalAllocation = nullptr,
+				.pfnInternalFree = nullptr,
+			};
+		}
 	} // namespace
 
-	[[nodiscard]] graphics_library init()
+	[[nodiscard]] graphics_library init(allocator alloc)
 	{
-		native_graphics_library_vk* nativeGL = new native_graphics_library_vk();
+		validateAllocator(alloc);
 
+		native_graphics_library_vk* nativeGL = allocate<native_graphics_library_vk>(alloc);
+
+		nativeGL->alloc = alloc;
+		nativeGL->allocCallbacks = createVKAllocator(&nativeGL->alloc);
 		nativeGL->vulkanLibrary = rsl::platform::load_library(native_graphics_library_vk::vulkanLibName);
 
 		if (!nativeGL->vulkanLibrary)
 		{
 			std::cout << "could not load " << native_graphics_library_vk::vulkanLibName.get() << '\n';
-			delete nativeGL;
+			deallocate<native_graphics_library_vk>(alloc, nativeGL);
 			return {};
 		}
 
@@ -494,7 +671,7 @@ namespace vk
 	if (!nativeGL->name)                                                                                               \
 	{                                                                                                                  \
 		std::cout << "Could not load exported Vulkan function \"" #name "\"\n";                                        \
-		delete nativeGL;                                                                                               \
+		deallocate<native_graphics_library_vk>(alloc, nativeGL);                                                       \
 		return {};                                                                                                     \
 	}
 
@@ -503,7 +680,7 @@ namespace vk
 	if (!nativeGL->name)                                                                                               \
 	{                                                                                                                  \
 		std::cout << "Could not load global-level Vulkan function \"" #name "\"\n";                                    \
-		delete nativeGL;                                                                                               \
+		deallocate<native_graphics_library_vk>(alloc, nativeGL);                                                       \
 		return {};                                                                                                     \
 	}
 
@@ -531,7 +708,7 @@ namespace vk
 		impl->vulkanLibrary.release();
 
 		m_nativeGL = invalid_native_graphics_library;
-		delete impl;
+		deallocate<native_graphics_library_vk>(impl->alloc, impl);
 	}
 
 	namespace
@@ -810,7 +987,7 @@ namespace vk
 		auto& impl = get_native_ref(*this);
 
 		VkInstance vkInstance = VK_NULL_HANDLE;
-		VkResult result = impl.vkCreateInstance(&instanceCreateInfo, nullptr, &vkInstance);
+		VkResult result = impl.vkCreateInstance(&instanceCreateInfo, &impl.allocCallbacks, &vkInstance);
 
 		if (result != VK_SUCCESS || vkInstance == VK_NULL_HANDLE)
 		{
@@ -818,7 +995,9 @@ namespace vk
 			return {};
 		}
 
-		native_instance_vk* nativeInstance = new native_instance_vk();
+		native_instance_vk* nativeInstance = allocate<native_instance_vk>(impl.alloc);
+		nativeInstance->alloc = &impl.alloc;
+		nativeInstance->allocCallbacks = &impl.allocCallbacks;
 		nativeInstance->instance = vkInstance;
 		nativeInstance->graphicsLib = *this;
 
@@ -826,10 +1005,10 @@ namespace vk
 		{
 			if (nativeInstance->vkDestroyInstance)
 			{
-				nativeInstance->vkDestroyInstance(nativeInstance->instance, nullptr);
+				nativeInstance->vkDestroyInstance(nativeInstance->instance, &impl.allocCallbacks);
 			}
 
-			delete nativeInstance;
+			deallocate<native_instance_vk>(impl.alloc, nativeInstance);
 			return {};
 		}
 
@@ -885,10 +1064,10 @@ namespace vk
 
 		release_physical_devices();
 
-		impl->vkDestroyInstance(impl->instance, nullptr);
+		impl->vkDestroyInstance(impl->instance, impl->allocCallbacks);
 
 		m_nativeInstance = invalid_native_instance;
-		delete impl;
+		deallocate<native_instance_vk>(*impl->alloc, impl);
 	}
 
 	std::span<physical_device> instance::create_physical_devices(bool forceRefresh)
@@ -920,9 +1099,11 @@ namespace vk
 			for (auto& pd : physicalDevicesBuffer)
 			{
 				auto& physicalDevice = impl.physicalDevices.emplace_back();
-				native_physical_device_vk* nativePhysicalDevice = new native_physical_device_vk();
+				native_physical_device_vk* nativePhysicalDevice = allocate<native_physical_device_vk>(*impl.alloc);
 				set_native_handle(physicalDevice, create_native_handle(nativePhysicalDevice));
 
+				nativePhysicalDevice->alloc = impl.alloc;
+				nativePhysicalDevice->allocCallbacks = impl.allocCallbacks;
 				nativePhysicalDevice->physicalDevice = pd;
 				nativePhysicalDevice->instance = *this;
 
@@ -963,10 +1144,12 @@ namespace vk
 
 	namespace
 	{
-		[[nodiscard]] physical_device copy_physical_device(physical_device src)
+		[[nodiscard]] physical_device copy_physical_device(allocator& alloc, physical_device src)
 		{
 			physical_device copy;
-			set_native_handle(copy, create_native_handle(new native_physical_device_vk(get_native_ref(src))));
+			set_native_handle(
+				copy, create_native_handle(allocate<native_physical_device_vk>(alloc, 1, get_native_ref(src)))
+			);
 
 			return copy;
 		}
@@ -1045,7 +1228,8 @@ namespace vk
 			VkDevice device = VK_NULL_HANDLE;
 
 			{
-				VkResult result = impl.vkCreateDevice(impl.physicalDevice, &deviceCreateInfo, nullptr, &device);
+				VkResult result =
+					impl.vkCreateDevice(impl.physicalDevice, &deviceCreateInfo, impl.allocCallbacks, &device);
 
 				if (result != VK_SUCCESS || device == VK_NULL_HANDLE)
 				{
@@ -1053,7 +1237,9 @@ namespace vk
 				}
 			}
 
-			auto* renderDevicePtr = new native_render_device_vk();
+			auto* renderDevicePtr = allocate<native_render_device_vk>(*impl.alloc);
+			renderDevicePtr->alloc = impl.alloc;
+			renderDevicePtr->allocCallbacks = impl.allocCallbacks;
 			renderDevicePtr->device = device;
 
 #define INSTANCE_LEVEL_DEVICE_VULKAN_FUNCTION(name) renderDevicePtr->name = impl.name;
@@ -1063,14 +1249,14 @@ namespace vk
 			{
 				if (renderDevicePtr->vkDestroyDevice)
 				{
-					renderDevicePtr->vkDestroyDevice(renderDevicePtr->device, nullptr);
+					renderDevicePtr->vkDestroyDevice(renderDevicePtr->device, impl.allocCallbacks);
 				}
 
-				delete renderDevicePtr;
+				deallocate<native_render_device_vk>(*impl.alloc, renderDevicePtr);
 				return {};
 			}
 
-			renderDevicePtr->physicalDevice = copy_physical_device(physicalDevice);
+			renderDevicePtr->physicalDevice = copy_physical_device(*impl.alloc, physicalDevice);
 			set_native_handle(impl.renderDevice, create_native_handle(renderDevicePtr));
 
 			renderDevicePtr->queues.resize(queueDesciptions.size());
@@ -1095,7 +1281,9 @@ namespace vk
 
 					auto& queue = renderDevicePtr->queues[inputIndex];
 
-					native_queue_vk* nativeQueue = new native_queue_vk();
+					native_queue_vk* nativeQueue = allocate<native_queue_vk>(*impl.alloc);
+					nativeQueue->alloc = impl.alloc;
+					nativeQueue->allocCallbacks = impl.allocCallbacks;
 					nativeQueue->queue = vkQueue;
 					nativeQueue->renderDevice = impl.renderDevice;
 					nativeQueue->queueIndex = inputIndex;
@@ -1131,7 +1319,8 @@ namespace vk
 			.hwnd = get_hwnd(impl.applicationInfo.windowHandle),
 		};
 
-		if (impl.vkCreateWin32SurfaceKHR(impl.instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		if (impl.vkCreateWin32SurfaceKHR(impl.instance, &surfaceCreateInfo, impl.allocCallbacks, &vkSurface) !=
+			VK_SUCCESS)
 		{
 			return {};
 		}
@@ -1145,7 +1334,8 @@ namespace vk
 			.window = get_window(impl.applicationInfo.windowHandle),
 		};
 
-		if (impl.vkCreateXcbSurfaceKHR(impl.instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		if (impl.vkCreateXcbSurfaceKHR(impl.instance, &surfaceCreateInfo, impl.allocCallbacks, &vkSurface) !=
+			VK_SUCCESS)
 		{
 			return {};
 		}
@@ -1159,15 +1349,18 @@ namespace vk
 			.window = get_window(impl.applicationInfo.windowHandle),
 		};
 
-		if (impl.vkCreateXlibSurfaceKHR(impl.instance, &surfaceCreateInfo, nullptr, &vkSurface) != VK_SUCCESS)
+		if (impl.vkCreateXlibSurfaceKHR(impl.instance, &surfaceCreateInfo, impl.allocCallbacks, &vkSurface) !=
+			VK_SUCCESS)
 		{
 			return {};
 		}
 	#endif
 #endif
 
-		native_surface_vk* nativeSurface = new native_surface_vk();
+		native_surface_vk* nativeSurface = allocate<native_surface_vk>(*impl.alloc);
 		nativeSurface->surface = vkSurface;
+		nativeSurface->alloc = impl.alloc;
+		nativeSurface->allocCallbacks = impl.allocCallbacks;
 		nativeSurface->instance = *this;
 
 		surface result;
@@ -1449,10 +1642,10 @@ namespace vk
 		}
 
 		auto nativeInstance = get_native_ptr(impl->instance);
-		nativeInstance->vkDestroySurfaceKHR(nativeInstance->instance, impl->surface, nullptr);
+		nativeInstance->vkDestroySurfaceKHR(nativeInstance->instance, impl->surface, impl->allocCallbacks);
 
 		m_nativeSurface = invalid_native_surface;
-		delete impl;
+		deallocate<native_surface_vk>(*impl->alloc, impl);
 	}
 
 	physical_device::operator bool() const noexcept
@@ -1471,7 +1664,7 @@ namespace vk
 		}
 
 		m_nativePhysicalDevice = invalid_native_physical_device;
-		delete impl;
+		deallocate<native_physical_device_vk>(*impl->alloc, impl);
 	}
 
 	namespace
@@ -2205,12 +2398,12 @@ namespace vk
 			return;
 		}
 
-		impl->vkDestroyDevice(impl->device, nullptr);
+		impl->vkDestroyDevice(impl->device, impl->allocCallbacks);
 
 		impl->physicalDevice.release();
 
 		m_nativeRenderDevice = invalid_native_render_device;
-		delete impl;
+		deallocate<native_render_device_vk>(*impl->alloc, impl);
 	}
 
 	std::span<queue> render_device::get_queues() noexcept
@@ -2268,7 +2461,7 @@ namespace vk
 		}
 
 		m_nativeQueue = invalid_native_queue;
-		delete impl;
+		deallocate<native_queue_vk>(*impl->alloc, impl);
 	}
 
 	rsl::size_type queue::get_index() const noexcept
@@ -2305,8 +2498,9 @@ namespace vk
 			};
 
 			VkCommandPool vkCommandPool = VK_NULL_HANDLE;
-			VkResult result =
-				renderDevice.vkCreateCommandPool(renderDevice.device, &commandPoolCreateInfo, nullptr, &vkCommandPool);
+			VkResult result = renderDevice.vkCreateCommandPool(
+				renderDevice.device, &commandPoolCreateInfo, impl.allocCallbacks, &vkCommandPool
+			);
 
 			if (result != VK_SUCCESS || vkCommandPool == VK_NULL_HANDLE)
 			{
@@ -2314,8 +2508,10 @@ namespace vk
 				return false;
 			}
 
-			native_command_pool_vk* nativeCommandPool = new native_command_pool_vk();
+			native_command_pool_vk* nativeCommandPool = allocate<native_command_pool_vk>(*impl.alloc);
 
+			nativeCommandPool->alloc = impl.alloc;
+			nativeCommandPool->allocCallbacks = impl.allocCallbacks;
 			nativeCommandPool->commandPool = vkCommandPool;
 			nativeCommandPool->renderDevice = impl.renderDevice;
 
@@ -2392,7 +2588,7 @@ namespace vk
 				auto* nativeCommandBuffer = get_native_ptr(buffer);
 				if (!nativeCommandBuffer)
 				{
-					nativeCommandBuffer = new native_command_buffer_vk();
+					nativeCommandBuffer = allocate<native_command_buffer_vk>(*impl.alloc);
 					set_native_handle(buffer, create_native_handle(nativeCommandBuffer));
 				}
 
@@ -2424,27 +2620,27 @@ namespace vk
 		for (auto& commandBuffer : impl->primaryCommandBuffers.commandBuffers)
 		{
 			auto* ptr = get_native_ptr(commandBuffer);
-            if (ptr)
-            {
-				delete ptr;
+			if (ptr)
+			{
+				deallocate<native_command_buffer_vk>(*impl->alloc, ptr);
 			}
 		}
 
 		for (auto& commandBuffer : impl->secondaryCommandBuffers.commandBuffers)
 		{
 			auto* ptr = get_native_ptr(commandBuffer);
-            if (ptr)
-            {
-				delete ptr;
-            }
+			if (ptr)
+			{
+				deallocate<native_command_buffer_vk>(*impl->alloc, ptr);
+			}
 		}
 
 		auto& renderDevice = get_native_ref(impl->renderDevice);
 
-		renderDevice.vkDestroyCommandPool(renderDevice.device, impl->commandPool, nullptr);
+		renderDevice.vkDestroyCommandPool(renderDevice.device, impl->commandPool, impl->allocCallbacks);
 
 		m_nativeCommandPool = invalid_native_command_pool;
-		delete impl;
+		deallocate<native_command_pool_vk>(*impl->alloc, impl);
 	}
 
 	rsl::size_type persistent_command_pool::get_capacity(command_buffer_level level) const noexcept
@@ -2508,7 +2704,7 @@ namespace vk
 
 		command_buffer commandBuffer = commandBufferPool.commandBuffers[commandBufferPool.lastUnusedIndex];
 
-        auto& nativeCommandBuffer = get_native_ref(commandBuffer);
+		auto& nativeCommandBuffer = get_native_ref(commandBuffer);
 		nativeCommandBuffer.commandPoolStorage.set(*this);
 		commandBufferPool.lastUnusedIndex = nativeCommandBuffer.nextUnusedIndex;
 		commandBufferPool.unusedCount--;
@@ -2543,10 +2739,10 @@ namespace vk
 
 		auto& renderDevice = get_native_ref(impl->renderDevice);
 
-		renderDevice.vkDestroyCommandPool(renderDevice.device, impl->commandPool, nullptr);
+		renderDevice.vkDestroyCommandPool(renderDevice.device, impl->commandPool, impl->allocCallbacks);
 
 		m_nativeCommandPool = invalid_native_command_pool;
-		delete impl;
+		deallocate<native_command_pool_vk>(*impl->alloc, impl);
 	}
 
 	rsl::size_type transient_command_pool::get_capacity([[maybe_unused]] command_buffer_level level) const noexcept

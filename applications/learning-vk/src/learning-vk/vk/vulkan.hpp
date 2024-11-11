@@ -18,6 +18,17 @@
 
 namespace vk
 {
+    struct allocator
+	{
+		void* (*allocFunc)(rsl::size_type size, void* userData) = nullptr;
+		void* (*allocAlignedFunc)(rsl::size_type size, rsl::size_type allignment, void* userData) = nullptr;
+		void* (*reallocFunc)(
+			void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment, void* userData
+		) = nullptr;
+		void (*freeFunc)(void* ptr, rsl::size_type size, void* userData) = nullptr;
+		void* userData = nullptr;
+	};
+
 #define DECLARE_API_TYPE(type)                                                                                         \
 	DECLARE_OPAQUE_HANDLE(native_##type);                                                                              \
 	class type;                                                                                                        \
@@ -40,6 +51,7 @@ namespace vk
 #if RYTHE_PLATFORM_WINDOWS
 	struct native_window_info_win32
 	{
+		allocator alloc;
 		HINSTANCE hinstance;
 		HWND hwnd;
 	};
@@ -49,6 +61,7 @@ namespace vk
 	#ifdef RYTHE_SURFACE_XCB
 	struct native_window_info_xcb
 	{
+		allocator alloc;
 		xcb_connection_t* connection;
 		xcb_window_t window;
 	};
@@ -57,6 +70,7 @@ namespace vk
 	#elif RYTHE_SURFACE_XLIB
 	struct native_window_info_xlib
 	{
+		allocator alloc;
 		Display* display;
 		Window window;
 	};
@@ -69,7 +83,7 @@ namespace vk
 
 	class graphics_library;
 
-	[[nodiscard]] graphics_library init();
+	[[nodiscard]] graphics_library init(allocator alloc = {});
 
 	struct extension_properties
 	{
@@ -527,7 +541,10 @@ namespace vk
 			std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions = {}
 		);
 
-		[[rythe_always_inline]] native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
+		[[rythe_always_inline]] native_physical_device get_native_handle() const noexcept
+		{
+			return m_nativePhysicalDevice;
+		}
 
 	private:
 		native_physical_device m_nativePhysicalDevice = invalid_native_physical_device;
@@ -649,7 +666,10 @@ namespace vk
 
 		void return_to_pool();
 
-		[[rythe_always_inline]] native_command_buffer get_native_handle() const noexcept { return m_nativeCommandBuffer; }
+		[[rythe_always_inline]] native_command_buffer get_native_handle() const noexcept
+		{
+			return m_nativeCommandBuffer;
+		}
 
 	private:
 		native_command_buffer m_nativeCommandBuffer = invalid_native_command_buffer;
