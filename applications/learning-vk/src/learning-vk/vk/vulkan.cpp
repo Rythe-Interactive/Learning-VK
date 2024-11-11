@@ -28,7 +28,7 @@ namespace vk
 {
 	namespace
 	{
-		rythe_always_inline constexpr semver::version decomposeVkVersion(rsl::uint32 vkVersion)
+		[[rythe_always_inline]] constexpr semver::version decomposeVkVersion(rsl::uint32 vkVersion)
 		{
 			return semver::version{
 				static_cast<rsl::uint8>(VK_API_VERSION_MAJOR(vkVersion)),
@@ -109,42 +109,42 @@ namespace vk
 #endif
 	}
 
-	rythe_always_inline static void set_native_handle(graphics_library& target, native_graphics_library handle)
+	static void set_native_handle(graphics_library& target, native_graphics_library handle)
 	{
 		target.m_nativeGL = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(instance& target, native_instance handle)
+	static void set_native_handle(instance& target, native_instance handle)
 	{
 		target.m_nativeInstance = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(surface& target, native_surface handle)
+	static void set_native_handle(surface& target, native_surface handle)
 	{
 		target.m_nativeSurface = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(physical_device& target, native_physical_device handle)
+	static void set_native_handle(physical_device& target, native_physical_device handle)
 	{
 		target.m_nativePhysicalDevice = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(render_device& target, native_render_device handle)
+	static void set_native_handle(render_device& target, native_render_device handle)
 	{
 		target.m_nativeRenderDevice = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(queue& target, native_queue handle)
+	static void set_native_handle(queue& target, native_queue handle)
 	{
 		target.m_nativeQueue = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(command_pool& target, native_command_pool handle)
+	static void set_native_handle(command_pool& target, native_command_pool handle)
 	{
 		target.m_nativeCommandPool = handle;
 	}
 
-	rythe_always_inline static void set_native_handle(command_buffer& target, native_command_buffer handle)
+	static void set_native_handle(command_buffer& target, native_command_buffer handle)
 	{
 		target.m_nativeCommandBuffer = handle;
 	}
@@ -456,13 +456,13 @@ namespace vk
 		};
 
 		template <typename T>
-		rythe_always_inline typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
+		[[rythe_always_inline]] typename native_handle_traits<T>::native_type* get_native_ptr(const T& inst)
 		{
 			return std::bit_cast<typename native_handle_traits<T>::native_type*>(inst.get_native_handle());
 		}
 
 		template <typename T>
-		rythe_always_inline typename native_handle_traits<T>::native_type& get_native_ref(const T& inst)
+		[[rythe_always_inline]] typename native_handle_traits<T>::native_type& get_native_ref(const T& inst)
 		{
 			auto* ptr = get_native_ptr(inst);
 			rsl_assert_invalid_object(ptr);
@@ -470,7 +470,7 @@ namespace vk
 		}
 
 		template <typename T>
-		rythe_always_inline auto create_native_handle(T* inst)
+		[[rythe_always_inline]] auto create_native_handle(T* inst)
 		{
 			return std::bit_cast<typename native_handle_traits<T>::handle_type>(inst);
 		}
@@ -536,7 +536,7 @@ namespace vk
 
 	namespace
 	{
-		rythe_always_inline constexpr rsl::size_type
+		[[rythe_always_inline]] constexpr rsl::size_type
 		get_layer_index(std::span<const layer_properties> layers, rsl::hashed_string_view layerName) noexcept
 		{
 			for (rsl::size_type i = 0; i < layers.size(); i++)
@@ -549,7 +549,7 @@ namespace vk
 			return rsl::npos;
 		}
 
-		rythe_always_inline constexpr rsl::size_type get_extension_index(
+		[[rythe_always_inline]] constexpr rsl::size_type get_extension_index(
 			std::span<const extension_properties> extensions, rsl::hashed_string_view extensionName
 		) noexcept
 		{
@@ -2358,7 +2358,7 @@ namespace vk
 
 	namespace
 	{
-		[[maybe_unused]] bool create_command_buffers(
+		bool create_command_buffers(
 			native_command_pool_vk& impl, std::span<command_buffer> buffers,
 			std::span<VkCommandBuffer> commandBuffersBuffer, command_buffer_level level
 		)

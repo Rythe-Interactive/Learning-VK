@@ -21,7 +21,7 @@ namespace vk
 #define DECLARE_API_TYPE(type)                                                                                         \
 	DECLARE_OPAQUE_HANDLE(native_##type);                                                                              \
 	class type;                                                                                                        \
-	static void set_native_handle(type&, native_##type);
+	[[maybe_unused]] [[rythe_always_inline]] static void set_native_handle(type&, native_##type);
 
 
 	DECLARE_API_TYPE(graphics_library);
@@ -53,7 +53,7 @@ namespace vk
 		xcb_window_t window;
 	};
 
-	native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo);
+	[[nodiscard]] native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo);
 	#elif RYTHE_SURFACE_XLIB
 	struct native_window_info_xlib
 	{
@@ -61,7 +61,7 @@ namespace vk
 		Window window;
 	};
 
-	native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo);
+	[[nodiscard]] native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo);
 	#endif
 #endif
 
@@ -112,7 +112,7 @@ namespace vk
 			std::span<const rsl::hashed_string> layers = {}, std::span<const rsl::hashed_string> extensions = {}
 		);
 
-		rythe_always_inline native_graphics_library get_native_handle() const noexcept { return m_nativeGL; }
+		[[rythe_always_inline]] native_graphics_library get_native_handle() const noexcept { return m_nativeGL; }
 
 	private:
 		native_graphics_library m_nativeGL;
@@ -179,7 +179,7 @@ namespace vk
 		bool inheritedQueries : 1 = false;
 	};
 
-	enum struct physical_device_type : rsl::uint8
+	enum struct [[rythe_closed_enum]] physical_device_type : rsl::uint8
 	{
 		other,
 		integratedGPU,
@@ -190,7 +190,7 @@ namespace vk
 
 	std::string_view to_string(physical_device_type type);
 
-	enum struct sample_count_flags : rsl::uint8
+	enum struct [[rythe_closed_enum]] [[rythe_flag_enum]] sample_count_flags : rsl::uint8
 	{
 		sc1Bit = 1 << 0,
 		sc2Bit = 1 << 1,
@@ -346,7 +346,7 @@ namespace vk
 		rsl::size_type requiredPerStageSampledImages = 4096;
 	};
 
-	enum struct queue_feature_flags : rsl::uint32
+	enum struct [[rythe_closed_enum]] [[rythe_flag_enum]] queue_feature_flags : rsl::uint32
 	{
 		graphics = 1 << 0,
 		compute = 1 << 1,
@@ -367,7 +367,7 @@ namespace vk
 		rsl::math::uint3 minImageTransferGranularity;
 	};
 
-	enum struct queue_priority : uint8_t
+	enum struct [[rythe_closed_enum]] queue_priority : uint8_t
 	{
 		normal,
 		high,
@@ -393,7 +393,7 @@ namespace vk
 		rsl::size_type score = 0;
 	};
 
-	enum struct surface_transform_flags : rsl::uint32
+	enum struct [[rythe_closed_enum]] [[rythe_flag_enum]] surface_transform_flags : rsl::uint32
 	{
 		identity = 1 << 0,
 		rotate90 = 1 << 1,
@@ -403,20 +403,18 @@ namespace vk
 		horizontalMirrorRotate90 = 1 << 5,
 		horizontalMirrorRotate180 = 1 << 6,
 		horizontalMirrorRotate270 = 1 << 7,
-		inherit = 1 << 8,
-		maxValue = 0x7FFFFFFF
+		inherit = 1 << 8
 	};
 
-	enum struct composite_alpha_flags : rsl::uint32
+	enum struct [[rythe_closed_enum]] [[rythe_flag_enum]] composite_alpha_flags : rsl::uint32
 	{
 		opaque = 1 << 0,
 		preMultiplied = 1 << 1,
 		postMultiplied = 1 << 2,
-		inherit = 1 << 3,
-		maxValue = 0x7FFFFFFF
+		inherit = 1 << 3
 	};
 
-	enum struct image_usage_flags : rsl::uint32
+	enum struct [[rythe_closed_enum]] [[rythe_flag_enum]] image_usage_flags : rsl::uint32
 	{
 		transferSrc = 1 << 0,
 		transferDst = 1 << 1,
@@ -438,8 +436,7 @@ namespace vk
 		attachmentFeedbackLoop = 1 << 19,
 		sampleWeightQCOM = 1 << 20,
 		sampleBlockMatchQCOM = 1 << 21,
-		hostTransfer = 1 << 22,
-		maxValue = 0x7FFFFFFF
+		hostTransfer = 1 << 22
 	};
 
 	struct surface_capabilities
@@ -466,7 +463,7 @@ namespace vk
 
 		void release();
 
-		rythe_always_inline native_surface get_native_handle() const noexcept { return m_nativeSurface; }
+		[[rythe_always_inline]] native_surface get_native_handle() const noexcept { return m_nativeSurface; }
 
 	private:
 		native_surface m_nativeSurface;
@@ -495,7 +492,7 @@ namespace vk
 			std::span<const rsl::hashed_string> extensions = {}
 		);
 
-		rythe_always_inline native_instance get_native_handle() const noexcept { return m_nativeInstance; }
+		[[rythe_always_inline]] native_instance get_native_handle() const noexcept { return m_nativeInstance; }
 
 	private:
 		native_instance m_nativeInstance = invalid_native_instance;
@@ -530,7 +527,7 @@ namespace vk
 			std::span<const queue_description> queueDesciptions, std::span<const rsl::hashed_string> extensions = {}
 		);
 
-		rythe_always_inline native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
+		[[rythe_always_inline]] native_physical_device get_native_handle() const noexcept { return m_nativePhysicalDevice; }
 
 	private:
 		native_physical_device m_nativePhysicalDevice = invalid_native_physical_device;
@@ -550,7 +547,7 @@ namespace vk
 		std::span<queue> get_queues() noexcept;
 		physical_device get_physical_device() const noexcept;
 
-		rythe_always_inline native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
+		[[rythe_always_inline]] native_render_device get_native_handle() const noexcept { return m_nativeRenderDevice; }
 
 	private:
 		native_render_device m_nativeRenderDevice = invalid_native_render_device;
@@ -575,14 +572,14 @@ namespace vk
 		[[nodiscard]] persistent_command_pool create_persistent_command_pool(bool protectedCommandBuffers = false);
 		[[nodiscard]] transient_command_pool create_transient_command_pool(bool protectedCommandBuffers = false);
 
-		rythe_always_inline native_queue get_native_handle() const noexcept { return m_nativeQueue; }
+		[[rythe_always_inline]] native_queue get_native_handle() const noexcept { return m_nativeQueue; }
 
 	private:
 		native_queue m_nativeQueue = invalid_native_queue;
 		friend void set_native_handle(queue&, native_queue);
 	};
 
-	enum struct command_buffer_level : rsl::uint8
+	enum struct [[rythe_closed_enum]] command_buffer_level : rsl::uint8
 	{
 		primary,
 		secondary,
@@ -606,7 +603,7 @@ namespace vk
 		virtual command_buffer get_command_buffer(command_buffer_level level = command_buffer_level::primary) = 0;
 		virtual void return_command_buffer(command_buffer& commandBuffer) = 0;
 
-		rythe_always_inline native_command_pool get_native_handle() const noexcept { return m_nativeCommandPool; }
+		[[rythe_always_inline]] native_command_pool get_native_handle() const noexcept { return m_nativeCommandPool; }
 
 	protected:
 		native_command_pool m_nativeCommandPool = invalid_native_command_pool;
@@ -652,7 +649,7 @@ namespace vk
 
 		void return_to_pool();
 
-		rythe_always_inline native_command_buffer get_native_handle() const noexcept { return m_nativeCommandBuffer; }
+		[[rythe_always_inline]] native_command_buffer get_native_handle() const noexcept { return m_nativeCommandBuffer; }
 
 	private:
 		native_command_buffer m_nativeCommandBuffer = invalid_native_command_buffer;
