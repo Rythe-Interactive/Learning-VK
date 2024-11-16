@@ -18,14 +18,26 @@
 
 namespace vk
 {
-    struct allocator
+	using alloc_func = void* (*)(rsl::size_type size, void* userData);
+	using alloc_aligned_func = void* (*)(rsl::size_type size, rsl::size_type allignment, void* userData);
+
+	// Use alignment = 0 for unaligned realloc.
+	using realloc_func = void* (*)(void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment,
+								   void* userData);
+
+	using dealloc_func = void (*)(void* ptr, rsl::size_type size, void* userData);
+	using dealloc_aligned_func = void (*)(void* ptr, rsl::size_type size, rsl::size_type alignment, void* userData);
+
+	struct allocator
 	{
-		void* (*allocFunc)(rsl::size_type size, void* userData) = nullptr;
-		void* (*allocAlignedFunc)(rsl::size_type size, rsl::size_type allignment, void* userData) = nullptr;
-		void* (*reallocFunc)(
-			void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment, void* userData
-		) = nullptr;
-		void (*freeFunc)(void* ptr, rsl::size_type size, void* userData) = nullptr;
+		alloc_func allocFunc = nullptr;
+		alloc_aligned_func alignedAllocFunc = nullptr;
+
+        // Use alignment = 0 for unaligned realloc.
+		realloc_func reallocFunc = nullptr;
+
+		dealloc_func deallocFunc = nullptr;
+		dealloc_aligned_func alignedDeallocFunc = nullptr;
 		void* userData = nullptr;
 	};
 

@@ -28,7 +28,7 @@ namespace vk
 {
 	namespace
 	{
-		[[rythe_always_inline]] constexpr semver::version decomposeVkVersion(rsl::uint32 vkVersion)
+		[[rythe_always_inline]] constexpr semver::version decomposeVkVersion(rsl::uint32 vkVersion) noexcept
 		{
 			return semver::version{
 				static_cast<rsl::uint8>(VK_API_VERSION_MAJOR(vkVersion)),
@@ -37,21 +37,21 @@ namespace vk
 			};
 		}
 
-		[[nodiscard]] [[rythe_allocating]] void* defaultAllocFunc(rsl::size_type size, void*)
+		[[nodiscard]] [[rythe_allocating]] void* defaultAllocFunc(rsl::size_type size, void*) noexcept
 		{
 			void* mem = ::operator new(size);
 			return mem;
 		}
 
 		[[nodiscard]] [[rythe_allocating]] void*
-		defaultAllocAlignedFunc(rsl::size_type size, rsl::size_type alignment, void*)
+		defaultAllocAlignedFunc(rsl::size_type size, rsl::size_type alignment, void*) noexcept
 		{
 			void* mem = ::operator new(size, std::align_val_t{alignment});
 			return mem;
 		}
 
 		[[nodiscard]] [[rythe_allocating]] void*
-		defaultReallocFunc(void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment, void*)
+		defaultReallocFunc(void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment, void*) noexcept
 		{
 			void* mem = nullptr;
 
@@ -69,30 +69,46 @@ namespace vk
 				std::memcpy(mem, ptr, std::min(oldSize, newSize));
 			}
 
-			::operator delete(ptr, oldSize);
+			if (alignment != 0)
+			{
+				::operator delete(ptr, oldSize, std::align_val_t{alignment});
+			}
+			else
+			{
+				::operator delete(ptr, oldSize);
+			}
 
 			return mem;
 		}
 
-		void defaultFreeFunc(void* ptr, rsl::size_type size, void*)
+		void defaultDeallocFunc(void* ptr, rsl::size_type size, void*) noexcept
 		{
 			::operator delete(ptr, size);
 		}
 
-		void validateAllocator(allocator& alloc)
+		void defaultDeallocAlignedFunc(void* ptr, rsl::size_type size, rsl::size_type alignment, void*) noexcept
 		{
-			if (!alloc.allocFunc || !alloc.freeFunc || !alloc.allocAlignedFunc || !alloc.reallocFunc)
+			::operator delete(ptr, size, std::align_val_t{alignment});
+		}
+
+		void validateAllocator(allocator& alloc) noexcept
+		{
+			if (!alloc.allocFunc || !alloc.deallocFunc || !alloc.alignedAllocFunc || !alloc.reallocFunc ||
+				!alloc.alignedDeallocFunc)
 			{
 				alloc.allocFunc = &defaultAllocFunc;
-				alloc.allocAlignedFunc = &defaultAllocAlignedFunc;
+				alloc.alignedAllocFunc = &defaultAllocAlignedFunc;
 				alloc.reallocFunc = &defaultReallocFunc;
-				alloc.freeFunc = &defaultFreeFunc;
+				alloc.deallocFunc = &defaultDeallocFunc;
+				alloc.alignedDeallocFunc = &defaultDeallocAlignedFunc;
 				alloc.userData = nullptr;
 			}
 		}
 
 		template <typename T, typename... Args>
-		[[nodiscard]] T* allocate(allocator& alloc, rsl::size_type count = 1, Args&&... args)
+		[[nodiscard]] T* allocate(
+			allocator& alloc, rsl::size_type count = 1, Args&&... args
+		) noexcept(std::is_nothrow_constructible_v<T, Args...>)
 		{
 			T* mem = static_cast<T*>(alloc.allocFunc(sizeof(T) * count, alloc.userData));
 
@@ -109,14 +125,14 @@ namespace vk
 		}
 
 		template <typename T>
-		void deallocate(allocator& alloc, T* ptr, rsl::size_type count = 1)
+		void deallocate(allocator& alloc, T* ptr, rsl::size_type count = 1) noexcept
 		{
 			if constexpr (!std::is_trivially_destructible_v<T>)
 			{
 				for (rsl::size_type i = 0; i < count; i++) { ptr[i].~T(); }
 			}
 
-			alloc.freeFunc(ptr, sizeof(T) * count, alloc.userData);
+			alloc.deallocFunc(ptr, sizeof(T) * count, alloc.userData);
 		}
 
 	} // namespace
@@ -595,15 +611,41 @@ namespace vk
 			return std::bit_cast<typename native_handle_traits<T>::handle_type>(inst);
 		}
 
-		void* defaultVKAllocFunc(void* userData, rsl::size_type size, rsl::size_type, VkSystemAllocationScope)
+		struct alloc_data
 		{
-			allocator* alloc = static_cast<allocator*>(userData);
-			void* mem = alloc->allocFunc(size + sizeof(rsl::size_type), alloc->userData);
-			*static_cast<rsl::size_type*>(mem) = size + sizeof(rsl::size_type);
-			return static_cast<rsl::byte*>(mem) + sizeof(rsl::size_type);
+			rsl::size_type size;
+			rsl::size_type alignment;
+		};
+
+		rsl::size_type get_additional_alloc_size(rsl::size_type alignment)
+		{
+			if (alignment >= sizeof(alloc_data))
+			{
+				return alignment;
+			}
+
+            return sizeof(alloc_data);
 		}
 
-		void defaultVKFreeFunc(void* userData, void* ptr)
+		void* defaultVKAllocFunc(
+			void* userData, rsl::size_type size, rsl::size_type alignment, VkSystemAllocationScope
+		) noexcept
+		{
+			allocator* alloc = static_cast<allocator*>(userData);
+
+            const rsl::size_type additionalAllocSize = get_additional_alloc_size(alignment);
+            const rsl::size_type totalSize = size + additionalAllocSize;
+			void* mem = alloc->alignedAllocFunc(totalSize, alignment, alloc->userData);
+
+			alloc_data* allocData = std::bit_cast<alloc_data*>(static_cast<rsl::byte*>(mem) + additionalAllocSize) - 1;
+
+            allocData->alignment = alignment;
+			allocData->size = totalSize;
+
+			return static_cast<rsl::byte*>(mem) + additionalAllocSize;
+		}
+
+		void defaultVKFreeFunc(void* userData, void* ptr) noexcept
 		{
 			if (!ptr)
 			{
@@ -611,32 +653,40 @@ namespace vk
 			}
 
 			allocator* alloc = static_cast<allocator*>(userData);
-			void* originalPtr = static_cast<void*>(static_cast<rsl::byte*>(ptr) - sizeof(rsl::size_type));
-			rsl::size_type size = *static_cast<rsl::size_type*>(originalPtr);
+			alloc_data* allocData = static_cast<alloc_data*>(ptr) - 1;
 
-			alloc->freeFunc(originalPtr, size, alloc->userData);
+			const rsl::size_type additionalAllocSize = get_additional_alloc_size(allocData->alignment);
+			void* originalPtr = static_cast<void*>(static_cast<rsl::byte*>(ptr) - additionalAllocSize);
+
+			alloc->alignedDeallocFunc(originalPtr, allocData->size, allocData->alignment, alloc->userData);
 		}
 
 		void* defaultVKReallocationFunc(
-			void* userData, void* ptr, rsl::size_type size, rsl::size_type, VkSystemAllocationScope
-		)
+			void* userData, void* ptr, rsl::size_type size, rsl::size_type alignment, VkSystemAllocationScope
+		) noexcept
 		{
 			allocator* alloc = static_cast<allocator*>(userData);
+			alloc_data* oldAllocData = static_cast<alloc_data*>(ptr) - 1;
 
-			rsl::size_type oldSize =
-				*static_cast<rsl::size_type*>(static_cast<void*>(static_cast<rsl::byte*>(ptr) - sizeof(rsl::size_type))
-				);
+            rsl_assert_msg_consistent(alignment == oldAllocData->alignment, "alignment mismatch");
 
-			void* mem = alloc->reallocFunc(
-				static_cast<rsl::byte*>(ptr) - sizeof(rsl::size_type), oldSize, size + sizeof(rsl::size_type), 0,
-				alloc->userData
+			void* originalPtr =
+				static_cast<void*>(static_cast<rsl::byte*>(ptr) - get_additional_alloc_size(oldAllocData->alignment));
+
+			const rsl::size_type additionalAllocSize = get_additional_alloc_size(alignment);
+			const rsl::size_type totalSize = size + additionalAllocSize;
+			void* mem = alloc->reallocFunc(originalPtr, oldAllocData->size, totalSize,
+				alignment, alloc->userData
 			);
+            
+			alloc_data* newAllocData = std::bit_cast<alloc_data*>(static_cast<rsl::byte*>(mem) + additionalAllocSize) - 1;
+			newAllocData->alignment = alignment;
+			newAllocData->size = totalSize;
 
-			*static_cast<rsl::size_type*>(mem) = size + sizeof(rsl::size_type);
-			return static_cast<rsl::byte*>(mem) + sizeof(rsl::size_type);
+			return static_cast<rsl::byte*>(mem) + additionalAllocSize;
 		}
 
-		VkAllocationCallbacks createVKAllocator(allocator* alloc)
+		VkAllocationCallbacks createVKAllocator(allocator* alloc) noexcept
 		{
 			return VkAllocationCallbacks{
 				.pUserData = alloc,
