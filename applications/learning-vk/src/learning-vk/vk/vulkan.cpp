@@ -920,10 +920,12 @@ namespace vk
 #ifdef RYTHE_DEBUG
 		if (!khrValidationLayerActive)
 		{
-			enabledLayerProperties.push_back(
-				availableLayers[get_layer_index(availableLayers, "VK_LAYER_KHRONOS_validation"_hsv)]
-			);
-			enabledLayers.push_back("VK_LAYER_KHRONOS_validation");
+			rsl::size_type validationLayerIndex = get_layer_index(availableLayers, "VK_LAYER_KHRONOS_validation"_hsv);
+			if (validationLayerIndex != rsl::npos)
+			{
+				enabledLayerProperties.push_back(availableLayers[validationLayerIndex]);
+				enabledLayers.push_back("VK_LAYER_KHRONOS_validation");
+			}
 		}
 #endif // RYTHE_DEBUG
 
@@ -2728,10 +2730,11 @@ namespace vk
 			impl.commandBuffersBuffer.resize(additionalCount);
 		}
 
-		rsl_soft_assert_consistent(create_command_buffers(
+        [[maybe_unused]]bool result = create_command_buffers(
 			impl, std::span(commandBufferPool.commandBuffers.data() + oldCount, additionalCount),
 			impl.commandBuffersBuffer, level
-		));
+		);
+		rsl_soft_assert_msg_consistent(result, "failed to create command buffer");
 
 		commandBufferPool.unusedCount += additionalCount;
 	}
@@ -2819,7 +2822,8 @@ namespace vk
 
 	command_buffer::operator bool() const noexcept
 	{
-		return false;
+		auto* impl = get_native_ptr(*this);
+		return impl && impl->commandBuffer != VK_NULL_HANDLE;
 	}
 
 	void command_buffer::return_to_pool()
