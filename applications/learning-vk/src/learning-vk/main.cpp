@@ -359,6 +359,8 @@ int main()
 
 	auto presentCommandBuffer = presentCommandPool.get_command_buffer();
 
+    std::cout << (presentCommandBuffer ? "Command buffer created!\n" : "Command buffer failed to be created...\n");
+
 #if RYTHE_PLATFORM_WINDOWS
 	MSG message;
 	while (GetMessage(&message, NULL, 0, 0) > 0)
