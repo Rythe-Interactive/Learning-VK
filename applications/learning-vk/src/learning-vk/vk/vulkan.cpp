@@ -37,80 +37,12 @@ namespace vk
 			};
 		}
 
-		[[nodiscard]] [[rythe_allocating]] void* defaultAllocFunc(rsl::size_type size, void*) noexcept
-		{
-			void* mem = ::operator new(size);
-			return mem;
-		}
-
-		[[nodiscard]] [[rythe_allocating]] void*
-		defaultAllocAlignedFunc(rsl::size_type size, rsl::size_type alignment, void*) noexcept
-		{
-			void* mem = ::operator new(size, std::align_val_t{alignment});
-			return mem;
-		}
-
-		[[nodiscard]] [[rythe_allocating]] void*
-		defaultReallocFunc(void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment, void*) noexcept
-		{
-			void* mem = nullptr;
-
-			if (newSize != 0)
-			{
-				if (alignment != 0)
-				{
-					mem = ::operator new(newSize, std::align_val_t{alignment});
-				}
-				else
-				{
-					mem = ::operator new(newSize);
-				}
-
-				std::memcpy(mem, ptr, std::min(oldSize, newSize));
-			}
-
-			if (alignment != 0)
-			{
-				::operator delete(ptr, oldSize, std::align_val_t{alignment});
-			}
-			else
-			{
-				::operator delete(ptr, oldSize);
-			}
-
-			return mem;
-		}
-
-		void defaultDeallocFunc(void* ptr, rsl::size_type size, void*) noexcept
-		{
-			::operator delete(ptr, size);
-		}
-
-		void defaultDeallocAlignedFunc(void* ptr, rsl::size_type size, rsl::size_type alignment, void*) noexcept
-		{
-			::operator delete(ptr, size, std::align_val_t{alignment});
-		}
-
-		void validateAllocator(allocator& alloc) noexcept
-		{
-			if (!alloc.allocFunc || !alloc.deallocFunc || !alloc.alignedAllocFunc || !alloc.reallocFunc ||
-				!alloc.alignedDeallocFunc)
-			{
-				alloc.allocFunc = &defaultAllocFunc;
-				alloc.alignedAllocFunc = &defaultAllocAlignedFunc;
-				alloc.reallocFunc = &defaultReallocFunc;
-				alloc.deallocFunc = &defaultDeallocFunc;
-				alloc.alignedDeallocFunc = &defaultDeallocAlignedFunc;
-				alloc.userData = nullptr;
-			}
-		}
-
 		template <typename T, typename... Args>
 		[[nodiscard]] T* allocate(
-			allocator& alloc, rsl::size_type count = 1, Args&&... args
+			rsl::pmu_allocator& alloc, rsl::size_type count = 1, Args&&... args
 		) noexcept(std::is_nothrow_constructible_v<T, Args...>)
 		{
-			T* mem = static_cast<T*>(alloc.allocFunc(sizeof(T) * count, alloc.userData));
+			T* mem = static_cast<T*>(alloc.allocate(sizeof(T) * count));
 
 			if constexpr (std::is_trivially_constructible_v<T> && sizeof...(Args) == 0)
 			{
@@ -125,14 +57,14 @@ namespace vk
 		}
 
 		template <typename T>
-		void deallocate(allocator& alloc, T* ptr, rsl::size_type count = 1) noexcept
+		void deallocate(rsl::pmu_allocator& alloc, T* ptr, rsl::size_type count = 1) noexcept
 		{
 			if constexpr (!std::is_trivially_destructible_v<T>)
 			{
 				for (rsl::size_type i = 0; i < count; i++) { ptr[i].~T(); }
 			}
 
-			alloc.deallocFunc(ptr, sizeof(T) * count, alloc.userData);
+			alloc.deallocate(ptr, sizeof(T) * count);
 		}
 
 	} // namespace
@@ -140,11 +72,8 @@ namespace vk
 #if RYTHE_PLATFORM_WINDOWS
 	[[nodiscard]] native_window_handle create_window_handle_win32(const native_window_info_win32& windowInfo)
 	{
-		allocator alloc = windowInfo.alloc;
-		validateAllocator(alloc);
 
-		auto* ptr = allocate<native_window_info_win32>(alloc, 1, windowInfo);
-		ptr->alloc = alloc;
+		auto* ptr = allocate<native_window_info_win32>(windowInfo.alloc, 1, windowInfo);
 		return std::bit_cast<native_window_handle>(ptr);
 	}
 
@@ -164,11 +93,7 @@ namespace vk
 	#ifdef RYTHE_SURFACE_XCB
 	[[nodiscard]] native_window_handle create_window_handle_xcb(const native_window_info_xcb& windowInfo)
 	{
-		allocator alloc = windowInfo.alloc;
-		validateAllocator(alloc);
-
-		auto* ptr = allocate<native_window_info_xcb>(alloc, 1, windowInfo);
-		ptr->alloc = alloc;
+		auto* ptr = allocate<native_window_info_xcb>(windowInfo.alloc, 1, windowInfo);
 		return std::bit_cast<native_window_handle>(ptr);
 	}
 
@@ -187,11 +112,7 @@ namespace vk
 	#elif RYTHE_SURFACE_XLIB
 	[[nodiscard]] native_window_handle create_window_handle_xlib(const native_window_info_xlib& windowInfo)
 	{
-		allocator alloc = windowInfo.alloc;
-		validateAllocator(alloc);
-
-		auto* ptr = allocate<native_window_info_xlib>(alloc, 1, windowInfo);
-		ptr->alloc = alloc;
+		auto* ptr = allocate<native_window_info_xlib>(windowInfo.alloc, 1, windowInfo);
 		return std::bit_cast<native_window_handle>(ptr);
 	}
 
@@ -279,7 +200,7 @@ namespace vk
 			std::vector<layer_properties> availableInstanceLayers;
 			std::vector<extension_properties> availableInstanceExtensions;
 
-			allocator alloc;
+			rsl::pmu_allocator* alloc;
 			VkAllocationCallbacks allocCallbacks;
 
 #define EXPORTED_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
@@ -321,7 +242,7 @@ namespace vk
 			std::vector<physical_device> physicalDevices;
 			application_info applicationInfo;
 			semver::version apiVersion;
-			allocator* alloc = nullptr;
+			rsl::pmu_allocator* alloc = nullptr;
 			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			std::vector<layer_properties> enabledLayers;
@@ -349,7 +270,7 @@ namespace vk
 		{
 			VkSurfaceKHR surface = VK_NULL_HANDLE;
 
-			allocator* alloc = nullptr;
+			rsl::pmu_allocator* alloc = nullptr;
 			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			instance instance;
@@ -389,7 +310,7 @@ namespace vk
 			std::vector<extension_properties> availableExtensions;
 			std::vector<queue_family_properties> availableQueueFamilies;
 
-			allocator* alloc = nullptr;
+			rsl::pmu_allocator* alloc = nullptr;
 			VkAllocationCallbacks* allocCallbacks = nullptr;
 			instance instance;
 
@@ -420,7 +341,7 @@ namespace vk
 #include "impl/list_of_vulkan_functions.inl"
 
 			physical_device physicalDevice;
-			allocator* alloc = nullptr;
+			rsl::pmu_allocator* alloc = nullptr;
 			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			std::vector<queue> queues;
@@ -445,7 +366,7 @@ namespace vk
 		struct native_queue_vk
 		{
 			render_device renderDevice;
-			allocator* alloc = nullptr;
+			rsl::pmu_allocator* alloc = nullptr;
 			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			rsl::size_type queueIndex;
@@ -472,7 +393,7 @@ namespace vk
 		struct native_command_pool_vk
 		{
 			render_device renderDevice;
-			allocator* alloc = nullptr;
+			rsl::pmu_allocator* alloc = nullptr;
 			VkAllocationCallbacks* allocCallbacks = nullptr;
 
 			std::vector<VkCommandBuffer> commandBuffersBuffer;
@@ -624,22 +545,30 @@ namespace vk
 				return alignment;
 			}
 
-            return sizeof(alloc_data);
+			return sizeof(alloc_data);
 		}
 
 		void* defaultVKAllocFunc(
 			void* userData, rsl::size_type size, rsl::size_type alignment, VkSystemAllocationScope
 		) noexcept
 		{
-			allocator* alloc = static_cast<allocator*>(userData);
+			rsl::pmu_allocator* alloc = static_cast<rsl::pmu_allocator*>(userData);
 
-            const rsl::size_type additionalAllocSize = get_additional_alloc_size(alignment);
-            const rsl::size_type totalSize = size + additionalAllocSize;
-			void* mem = alloc->alignedAllocFunc(totalSize, alignment, alloc->userData);
+			const rsl::size_type additionalAllocSize = get_additional_alloc_size(alignment);
+			const rsl::size_type totalSize = size + additionalAllocSize;
+			void* mem;
+			if (alignment == 0)
+			{
+				mem = alloc->allocate(totalSize);
+			}
+			else
+			{
+				mem = alloc->allocate(totalSize, alignment);
+			}
 
 			alloc_data* allocData = std::bit_cast<alloc_data*>(static_cast<rsl::byte*>(mem) + additionalAllocSize) - 1;
 
-            allocData->alignment = alignment;
+			allocData->alignment = alignment;
 			allocData->size = totalSize;
 
 			return static_cast<rsl::byte*>(mem) + additionalAllocSize;
@@ -652,44 +581,58 @@ namespace vk
 				return;
 			}
 
-			allocator* alloc = static_cast<allocator*>(userData);
+			rsl::pmu_allocator* alloc = static_cast<rsl::pmu_allocator*>(userData);
 			alloc_data* allocData = static_cast<alloc_data*>(ptr) - 1;
 
 			const rsl::size_type additionalAllocSize = get_additional_alloc_size(allocData->alignment);
 			void* originalPtr = static_cast<void*>(static_cast<rsl::byte*>(ptr) - additionalAllocSize);
 
-			alloc->alignedDeallocFunc(originalPtr, allocData->size, allocData->alignment, alloc->userData);
+			if (allocData->alignment == 0)
+			{
+				alloc->deallocate(originalPtr, allocData->size);
+			}
+			else
+			{
+				alloc->deallocate(originalPtr, allocData->size, allocData->alignment);
+			}
 		}
 
 		void* defaultVKReallocationFunc(
 			void* userData, void* ptr, rsl::size_type size, rsl::size_type alignment, VkSystemAllocationScope
 		) noexcept
 		{
-			allocator* alloc = static_cast<allocator*>(userData);
+			rsl::pmu_allocator* alloc = static_cast<rsl::pmu_allocator*>(userData);
 			alloc_data* oldAllocData = static_cast<alloc_data*>(ptr) - 1;
 
-            rsl_assert_msg_consistent(alignment == oldAllocData->alignment, "alignment mismatch");
+			rsl_assert_msg_consistent(alignment == oldAllocData->alignment, "alignment mismatch");
 
 			void* originalPtr =
 				static_cast<void*>(static_cast<rsl::byte*>(ptr) - get_additional_alloc_size(oldAllocData->alignment));
 
 			const rsl::size_type additionalAllocSize = get_additional_alloc_size(alignment);
 			const rsl::size_type totalSize = size + additionalAllocSize;
-			void* mem = alloc->reallocFunc(originalPtr, oldAllocData->size, totalSize,
-				alignment, alloc->userData
-			);
-            
-			alloc_data* newAllocData = std::bit_cast<alloc_data*>(static_cast<rsl::byte*>(mem) + additionalAllocSize) - 1;
+			void* mem;
+			if (alignment == 0)
+			{
+				mem = alloc->reallocate(originalPtr, oldAllocData->size, totalSize);
+			}
+			else
+			{
+				mem = alloc->reallocate(originalPtr, oldAllocData->size, totalSize, alignment);
+			}
+
+			alloc_data* newAllocData =
+				std::bit_cast<alloc_data*>(static_cast<rsl::byte*>(mem) + additionalAllocSize) - 1;
 			newAllocData->alignment = alignment;
 			newAllocData->size = totalSize;
 
 			return static_cast<rsl::byte*>(mem) + additionalAllocSize;
 		}
 
-		VkAllocationCallbacks createVKAllocator(allocator* alloc) noexcept
+		VkAllocationCallbacks createVKAllocator(rsl::pmu_allocator& alloc) noexcept
 		{
 			return VkAllocationCallbacks{
-				.pUserData = alloc,
+				.pUserData = &alloc,
 				.pfnAllocation = &defaultVKAllocFunc,
 				.pfnReallocation = &defaultVKReallocationFunc,
 				.pfnFree = &defaultVKFreeFunc,
@@ -699,14 +642,12 @@ namespace vk
 		}
 	} // namespace
 
-	[[nodiscard]] graphics_library init(allocator alloc)
+	[[nodiscard]] graphics_library init(rsl::pmu_allocator& alloc)
 	{
-		validateAllocator(alloc);
-
 		native_graphics_library_vk* nativeGL = allocate<native_graphics_library_vk>(alloc);
 
-		nativeGL->alloc = alloc;
-		nativeGL->allocCallbacks = createVKAllocator(&nativeGL->alloc);
+		nativeGL->alloc = &alloc;
+		nativeGL->allocCallbacks = createVKAllocator(*nativeGL->alloc);
 		nativeGL->vulkanLibrary = rsl::platform::load_library(native_graphics_library_vk::vulkanLibName);
 
 		if (!nativeGL->vulkanLibrary)
@@ -758,7 +699,7 @@ namespace vk
 		impl->vulkanLibrary.release();
 
 		m_nativeGL = invalid_native_graphics_library;
-		deallocate<native_graphics_library_vk>(impl->alloc, impl);
+		deallocate<native_graphics_library_vk>(*impl->alloc, impl);
 	}
 
 	namespace
@@ -1045,8 +986,8 @@ namespace vk
 			return {};
 		}
 
-		native_instance_vk* nativeInstance = allocate<native_instance_vk>(impl.alloc);
-		nativeInstance->alloc = &impl.alloc;
+		native_instance_vk* nativeInstance = allocate<native_instance_vk>(*impl.alloc);
+		nativeInstance->alloc = impl.alloc;
 		nativeInstance->allocCallbacks = &impl.allocCallbacks;
 		nativeInstance->instance = vkInstance;
 		nativeInstance->graphicsLib = *this;
@@ -1058,7 +999,7 @@ namespace vk
 				nativeInstance->vkDestroyInstance(nativeInstance->instance, &impl.allocCallbacks);
 			}
 
-			deallocate<native_instance_vk>(impl.alloc, nativeInstance);
+			deallocate<native_instance_vk>(*impl.alloc, nativeInstance);
 			return {};
 		}
 
@@ -1194,7 +1135,7 @@ namespace vk
 
 	namespace
 	{
-		[[nodiscard]] physical_device copy_physical_device(allocator& alloc, physical_device src)
+		[[nodiscard]] physical_device copy_physical_device(rsl::pmu_allocator& alloc, physical_device src)
 		{
 			physical_device copy;
 			set_native_handle(

@@ -26,7 +26,8 @@ Wndproc(
 
 int main()
 {
-	vk::graphics_library lib = vk::init();
+	rsl::default_pmu_allocator allocator;
+	vk::graphics_library lib = vk::init(allocator);
 
 	if (!lib)
 	{
@@ -74,6 +75,7 @@ int main()
 	UpdateWindow(hwnd);
 
 	vk::native_window_info_win32 windowInfo{
+        .alloc = allocator,
 		.hinstance = hinstance,
 		.hwnd = hwnd,
 	};

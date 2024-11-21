@@ -2,6 +2,7 @@
 
 #include <rsl/hashed_string>
 #include <rsl/math>
+#include <rsl/memory>
 #include <rsl/platform>
 #include <rsl/primitives>
 
@@ -18,29 +19,6 @@
 
 namespace vk
 {
-	using alloc_func = void* (*)(rsl::size_type size, void* userData);
-	using alloc_aligned_func = void* (*)(rsl::size_type size, rsl::size_type allignment, void* userData);
-
-	// Use alignment = 0 for unaligned realloc.
-	using realloc_func = void* (*)(void* ptr, rsl::size_type oldSize, rsl::size_type newSize, rsl::size_type alignment,
-								   void* userData);
-
-	using dealloc_func = void (*)(void* ptr, rsl::size_type size, void* userData);
-	using dealloc_aligned_func = void (*)(void* ptr, rsl::size_type size, rsl::size_type alignment, void* userData);
-
-	struct allocator
-	{
-		alloc_func allocFunc = nullptr;
-		alloc_aligned_func alignedAllocFunc = nullptr;
-
-        // Use alignment = 0 for unaligned realloc.
-		realloc_func reallocFunc = nullptr;
-
-		dealloc_func deallocFunc = nullptr;
-		dealloc_aligned_func alignedDeallocFunc = nullptr;
-		void* userData = nullptr;
-	};
-
 #define DECLARE_API_TYPE(type)                                                                                         \
 	DECLARE_OPAQUE_HANDLE(native_##type);                                                                              \
 	class type;                                                                                                        \
@@ -63,7 +41,7 @@ namespace vk
 #if RYTHE_PLATFORM_WINDOWS
 	struct native_window_info_win32
 	{
-		allocator alloc;
+		rsl::polymorphic_univeral_allocator& alloc;
 		HINSTANCE hinstance;
 		HWND hwnd;
 	};
@@ -73,7 +51,7 @@ namespace vk
 	#ifdef RYTHE_SURFACE_XCB
 	struct native_window_info_xcb
 	{
-		allocator alloc;
+		rsl::polymorphic_univeral_allocator& alloc;
 		xcb_connection_t* connection;
 		xcb_window_t window;
 	};
@@ -82,7 +60,7 @@ namespace vk
 	#elif RYTHE_SURFACE_XLIB
 	struct native_window_info_xlib
 	{
-		allocator alloc;
+		rsl::polymorphic_univeral_allocator& alloc;
 		Display* display;
 		Window window;
 	};
@@ -95,7 +73,7 @@ namespace vk
 
 	class graphics_library;
 
-	[[nodiscard]] graphics_library init(allocator alloc = {});
+	[[nodiscard]] graphics_library init(rsl::polymorphic_univeral_allocator& alloc);
 
 	struct extension_properties
 	{
